@@ -5,6 +5,7 @@ import logging
 from dataclasses import dataclass
 from typing import List, Optional, Callable
 from datetime import datetime
+from urllib.parse import quote
 
 logger = logging.getLogger(__name__)
 
@@ -76,8 +77,8 @@ class BeyondAPI:
             "tags": ["Surf", "Agendamento", level, wave_side]
         }
 
-        # Build URL with multiple tags
-        tag_params = "&".join([f"tags={tag}" for tag in params["tags"]])
+        # Build URL with multiple tags (URL encode for special chars like ç)
+        tag_params = "&".join([f"tags={quote(tag)}" for tag in params["tags"]])
         full_url = f"{url}?{tag_params}"
 
         response = self._client.get(full_url, headers=self._get_headers())
@@ -102,7 +103,7 @@ class BeyondAPI:
             "tags": ["Surf", "Agendamento", level, wave_side]
         }
 
-        tag_params = "&".join([f"tags={tag}" for tag in params["tags"]])
+        tag_params = "&".join([f"tags={quote(tag)}" for tag in params["tags"]])
         full_url = f"{url}?date={date}&{tag_params}"
 
         response = self._client.get(full_url, headers=self._get_headers())

@@ -15,7 +15,14 @@ from src.bot import BeyondBot, Member, MemberPreferences, SessionPreference
 from src.config import load_config
 
 # Available levels and wave sides
-LEVELS = ["Iniciante1", "Iniciante2", "Intermediario1"]
+LEVELS = [
+    "Iniciante1",
+    "Iniciante2",
+    "Intermediario1",
+    "Intermediario2",
+    "Avançado1",
+    "Avançado2",
+]
 WAVE_SIDES = ["Lado_esquerdo", "Lado_direito"]
 
 

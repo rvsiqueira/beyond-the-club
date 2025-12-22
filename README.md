@@ -8,7 +8,7 @@ Bot automatizado para monitorar e reservar sessões de surf no Beyond The Club.
 - **Preferências individuais**: Cada membro pode ter suas próprias preferências de sessão
 - **Priorização**: Sessões são buscadas na ordem de prioridade configurada
 - **Cache inteligente**: Cache de tokens e membros para performance
-- Suporte a múltiplos níveis: Iniciante1, Iniciante2, Intermediario1
+- Suporte a múltiplos níveis: Iniciante1, Iniciante2, Intermediario1, Intermediario2, Avançado1, Avançado2
 - Suporte a ambos lados da onda: Lado_esquerdo, Lado_direito
 - Filtro por horários específicos
 - Filtro por datas específicas
@@ -145,6 +145,9 @@ Adicionar sessão de interesse:
     1. Iniciante1
     2. Iniciante2
     3. Intermediario1
+    4. Intermediario2
+    5. Avançado1
+    6. Avançado2
   Nível (número): 1
   Lados disponíveis:
     1. Lado_esquerdo
@@ -287,7 +290,7 @@ Chave: `member_id` como string
 | Campo | Tipo | Descrição |
 |-------|------|-----------|
 | `sessions` | array | Lista de preferências de sessão em ordem de prioridade |
-| `sessions[].level` | string | Nível: Iniciante1, Iniciante2, Intermediario1 |
+| `sessions[].level` | string | Nível: Iniciante1, Iniciante2, Intermediario1, Intermediario2, Avançado1, Avançado2 |
 | `sessions[].wave_side` | string | Lado: Lado_esquerdo, Lado_direito |
 | `target_hours` | array | Horários preferidos (ex: ["08:00", "09:00"]) |
 | `target_dates` | array | Datas específicas (ex: ["2025-01-15"]) |
