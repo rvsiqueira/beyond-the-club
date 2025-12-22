@@ -2,8 +2,8 @@
 
 import httpx
 import logging
-from dataclasses import dataclass
-from typing import List, Optional, Callable
+from dataclasses import dataclass, field
+from typing import List, Optional, Callable, Dict, Any
 from datetime import datetime
 from urllib.parse import quote
 
@@ -11,24 +11,42 @@ logger = logging.getLogger(__name__)
 
 
 @dataclass
-class SurfSession:
-    """Represents a surf session slot."""
+class SportSession:
+    """Represents a sport session slot (generic for all sports)."""
     id: str
+    sport: str
     date: str
     time: str
-    level: str
-    wave_side: str
+    attributes: Dict[str, str]  # e.g., {"level": "Iniciante1", "wave_side": "Lado_esquerdo"} or {"court": "Quadra_Saibro"}
     available_spots: int
     total_spots: int
     is_available: bool
     raw_data: dict
+
+    # Convenience properties for surf (backwards compatibility)
+    @property
+    def level(self) -> str:
+        return self.attributes.get("level", "")
+
+    @property
+    def wave_side(self) -> str:
+        return self.attributes.get("wave_side", "")
+
+    # Convenience property for tennis
+    @property
+    def court(self) -> str:
+        return self.attributes.get("court", "")
+
+
+# Alias for backwards compatibility
+SurfSession = SportSession
 
 
 @dataclass
 class SessionDate:
     """Represents an available date with sessions."""
     date: str
-    sessions: List[SurfSession]
+    sessions: List[SportSession]
 
 
 class BeyondAPI:
@@ -57,53 +75,84 @@ class BeyondAPI:
             "user-agent": "okhttp/4.12.0",
         }
 
-    def get_surf_status(self) -> dict:
-        """Get current surf schedule status."""
-        url = f"{self.base_url}/schedules/surf/status"
+    def _build_tag_params(self, tags: List[str]) -> str:
+        """Build URL-encoded tag parameters."""
+        return "&".join([f"tags={quote(tag)}" for tag in tags])
+
+    def get_schedule_status(self, sport: str = "surf") -> dict:
+        """Get current schedule status for a sport."""
+        url = f"{self.base_url}/schedules/{sport}/status"
         response = self._client.get(url, headers=self._get_headers())
         response.raise_for_status()
         return response.json()
 
-    def get_available_dates(self, level: str, wave_side: str) -> List[dict]:
+    # Backwards compatibility alias
+    def get_surf_status(self) -> dict:
+        """Get current surf schedule status."""
+        return self.get_schedule_status("surf")
+
+    def get_available_dates(
+        self,
+        tags: List[str],
+        sport: str = "surf",
+        # Legacy parameters for backwards compatibility
+        level: Optional[str] = None,
+        wave_side: Optional[str] = None,
+    ) -> List[dict]:
         """
-        Get available dates for a specific level and wave side.
+        Get available dates for a sport with specified tags.
 
         Args:
-            level: Session level (Iniciante1, Iniciante2, Intermediario1)
-            wave_side: Wave side (Lado_esquerdo, Lado_direito)
+            tags: List of tags to filter by (e.g., ["Surf", "Agendamento", "Iniciante1", "Lado_esquerdo"])
+            sport: Sport type (surf, tennis, etc.)
+            level: (Legacy) Session level for surf
+            wave_side: (Legacy) Wave side for surf
         """
-        url = f"{self.base_url}/schedules/surf/dates"
-        params = {
-            "tags": ["Surf", "Agendamento", level, wave_side]
-        }
+        # Handle legacy call pattern
+        if level is not None and wave_side is not None:
+            tags = ["Surf", "Agendamento", level, wave_side]
+            sport = "surf"
 
-        # Build URL with multiple tags (URL encode for special chars like ç)
-        tag_params = "&".join([f"tags={quote(tag)}" for tag in params["tags"]])
+        url = f"{self.base_url}/schedules/{sport}/dates"
+        tag_params = self._build_tag_params(tags)
         full_url = f"{url}?{tag_params}"
 
         response = self._client.get(full_url, headers=self._get_headers())
         response.raise_for_status()
 
         data = response.json()
-        logger.debug(f"Available dates for {level}/{wave_side}: {data}")
+        logger.debug(f"Available dates for {sport} with tags {tags}: {data}")
         return data
 
-    def get_sessions_for_date(self, date: str, level: str, wave_side: str) -> List[SurfSession]:
+    def get_sessions_for_date(
+        self,
+        date: str,
+        tags: List[str],
+        attributes: Dict[str, str],
+        sport: str = "surf",
+        # Legacy parameters for backwards compatibility
+        level: Optional[str] = None,
+        wave_side: Optional[str] = None,
+    ) -> List[SportSession]:
         """
         Get available sessions for a specific date.
 
         Args:
             date: Date in YYYY-MM-DD format
-            level: Session level
-            wave_side: Wave side
+            tags: List of tags to filter by
+            attributes: Dict of attribute name -> value for the session
+            sport: Sport type
+            level: (Legacy) Session level for surf
+            wave_side: (Legacy) Wave side for surf
         """
-        url = f"{self.base_url}/schedules/surf/times"
-        params = {
-            "date": date,
-            "tags": ["Surf", "Agendamento", level, wave_side]
-        }
+        # Handle legacy call pattern
+        if level is not None and wave_side is not None:
+            tags = ["Surf", "Agendamento", level, wave_side]
+            attributes = {"level": level, "wave_side": wave_side}
+            sport = "surf"
 
-        tag_params = "&".join([f"tags={quote(tag)}" for tag in params["tags"]])
+        url = f"{self.base_url}/schedules/{sport}/times"
+        tag_params = self._build_tag_params(tags)
         full_url = f"{url}?date={date}&{tag_params}"
 
         response = self._client.get(full_url, headers=self._get_headers())
@@ -113,12 +162,12 @@ class BeyondAPI:
         sessions = []
 
         for item in data if isinstance(data, list) else data.get("sessions", []):
-            session = SurfSession(
+            session = SportSession(
                 id=str(item.get("id", "")),
+                sport=sport,
                 date=date,
                 time=item.get("time", item.get("startTime", "")),
-                level=level,
-                wave_side=wave_side,
+                attributes=attributes.copy(),
                 available_spots=item.get("availableSpots", item.get("available", 0)),
                 total_spots=item.get("totalSpots", item.get("capacity", 0)),
                 is_available=item.get("isAvailable", item.get("available", 0) > 0),
@@ -128,15 +177,21 @@ class BeyondAPI:
 
         return sessions
 
-    def book_session(self, session_id: str, member_id: Optional[str] = None) -> dict:
+    def book_session(
+        self,
+        session_id: str,
+        member_id: Optional[str] = None,
+        sport: str = "surf"
+    ) -> dict:
         """
-        Book a surf session.
+        Book a session.
 
         Args:
             session_id: The session ID to book
             member_id: Optional member ID (uses authenticated user if not provided)
+            sport: Sport type
         """
-        url = f"{self.base_url}/schedules/surf/book"
+        url = f"{self.base_url}/schedules/{sport}/book"
 
         payload = {"sessionId": session_id}
         if member_id:
@@ -148,7 +203,7 @@ class BeyondAPI:
         response = self._client.post(url, json=payload, headers=headers)
         response.raise_for_status()
 
-        logger.info(f"Successfully booked session {session_id}")
+        logger.info(f"Successfully booked {sport} session {session_id}")
         return response.json()
 
     def get_member_preferences(self) -> dict:
@@ -174,9 +229,9 @@ class BeyondAPI:
         data = response.json()
         return data.get("exists", False)
 
-    def get_my_bookings(self) -> List[dict]:
-        """Get the current user's bookings."""
-        url = f"{self.base_url}/schedules/surf/my-bookings"
+    def get_my_bookings(self, sport: str = "surf") -> List[dict]:
+        """Get the current user's bookings for a sport."""
+        url = f"{self.base_url}/schedules/{sport}/my-bookings"
         response = self._client.get(url, headers=self._get_headers())
         response.raise_for_status()
         return response.json()

@@ -1,14 +1,22 @@
-# BeyondTheClub Surf Session Booking Bot
+# BeyondTheClub Sport Session Booking Bot
 
-Bot automatizado para monitorar e reservar sessões de surf no Beyond The Club.
+Bot automatizado para monitorar e reservar sessões de esportes no Beyond The Club.
+
+## Esportes Suportados
+
+| Esporte | Argumento | Atributos |
+|---------|-----------|-----------|
+| Surf | `--sport surf` (padrão) | Nível + Lado da onda |
+| Tennis | `--sport tennis` | Quadra |
 
 ## Funcionalidades
 
+- **Multi-esporte**: Suporte a surf, tennis e outros esportes
 - **Multi-membro**: Monitorar e reservar para múltiplos membros do mesmo título
-- **Preferências individuais**: Cada membro pode ter suas próprias preferências de sessão
+- **Preferências individuais**: Cada membro pode ter suas próprias preferências por esporte
 - **Priorização**: Sessões são buscadas na ordem de prioridade configurada
 - **Cache inteligente**: Cache de tokens e membros para performance
-- Suporte a múltiplos níveis: Iniciante1, Iniciante2, Intermediario1, Intermediario2, Avançado1, Avançado2
+- Suporte a múltiplos níveis de surf: Iniciante1, Iniciante2, Intermediario1, Intermediario2, Avançado1, Avançado2
 - Suporte a ambos lados da onda: Lado_esquerdo, Lado_direito
 - Filtro por horários específicos
 - Filtro por datas específicas
@@ -43,11 +51,15 @@ ADMIN_PASSWORD=sua_senha
 # Seu telefone
 PHONE_NUMBER=+5511999999999
 
-# Configurações globais (fallback se não usar preferências por membro)
-SESSION_LEVELS=Iniciante1,Iniciante2
-WAVE_SIDES=Lado_esquerdo,Lado_direito
-TARGET_HOURS=08:00,10:00,14:00
-TARGET_DATES=2024-01-15,2024-01-20
+# Esportes disponíveis
+SPORTS=surf,tennis
+
+# Configurações de Surf
+SURF_LEVELS=Iniciante1,Iniciante2,Intermediario1,Intermediario2,Avançado1,Avançado2
+SURF_WAVE_SIDES=Lado_esquerdo,Lado_direito
+
+# Configurações de Tennis
+TENNIS_COURTS=Quadra_Saibro
 
 # Configurações do bot
 CHECK_INTERVAL_SECONDS=60
@@ -62,9 +74,10 @@ AUTO_BOOK=true
 
 | Comando | Descrição |
 |---------|-----------|
+| `--sport <surf\|tennis>` | Seleciona o esporte (padrão: surf) |
 | `--list-members` | Lista todos os membros disponíveis no título |
 | `--refresh-members` | Força atualização da lista de membros da API |
-| `--check-status` | Verifica status do sistema de surf |
+| `--check-status` | Verifica status do sistema do esporte selecionado |
 | `--inscriptions` | Mostra inscrições do usuário |
 
 ### Comandos de Configuração
@@ -101,8 +114,11 @@ AUTO_BOOK=true
 ### 1. Listar membros disponíveis
 
 ```bash
-# Usa cache (rápido)
+# Surf (padrão)
 python main.py --list-members
+
+# Tennis
+python main.py --sport tennis --list-members
 
 # Força refresh da API
 python main.py --list-members --refresh-members
@@ -110,7 +126,7 @@ python main.py --list-members --refresh-members
 
 Saída:
 ```
-Membros disponíveis:
+Membros disponíveis (SURF):
   1. [12869] RAFAEL (Titular) - Uso: 0/1 - Prefs: ✓
   2. [16230] GABRIEL - Uso: 0/1 - Prefs: ✗
   3. [14002] JULIA - Uso: 0/1 - Prefs: ✗
@@ -119,18 +135,22 @@ Membros disponíveis:
 ### 2. Configurar preferências de um membro
 
 ```bash
+# Surf
 python main.py --configure
+
+# Tennis
+python main.py --sport tennis --configure
 ```
 
-Fluxo interativo:
+#### Exemplo de fluxo para Surf:
 ```
-Membros disponíveis:
+Membros disponíveis (SURF):
   1. [12869] RAFAEL (Titular) - Uso: 0/1 - Prefs: ✓
   2. [16230] GABRIEL - Uso: 0/1 - Prefs: ✗
 
 Selecione o membro para configurar (número): 1
 
-RAFAEL já possui preferências configuradas:
+RAFAEL possui preferências de Surf configuradas:
   1. Iniciante1 / Lado_esquerdo
   2. Iniciante2 / Lado_direito
   Horários: 08:00, 09:00
@@ -138,10 +158,10 @@ RAFAEL já possui preferências configuradas:
 Deseja manter estas preferências? (s/n): n
 Apagando preferências anteriores...
 
-Configurando preferências para RAFAEL...
+Configurando preferências de Surf para RAFAEL...
 
 Adicionar sessão de interesse:
-  Níveis disponíveis:
+  Nível disponíveis:
     1. Iniciante1
     2. Iniciante2
     3. Intermediario1
@@ -149,7 +169,7 @@ Adicionar sessão de interesse:
     5. Avançado1
     6. Avançado2
   Nível (número): 1
-  Lados disponíveis:
+  Lado disponíveis:
     1. Lado_esquerdo
     2. Lado_direito
   Lado (número): 1
@@ -161,20 +181,46 @@ Adicionar outra? (s/n): s
 Horários preferidos (ex: 08:00,09:00 ou Enter para todos): 08:00,09:00
 Datas específicas (ex: 2025-01-15,2025-01-16 ou Enter para todas):
 
-Preferências salvas para RAFAEL:
+Preferências de Surf salvas para RAFAEL:
   1. Iniciante1 / Lado_esquerdo (prioridade 1)
   2. Iniciante2 / Lado_direito (prioridade 2)
   Horários: 08:00, 09:00
 ```
 
+#### Exemplo de fluxo para Tennis:
+```bash
+$ python main.py --sport tennis --configure
+
+Membros disponíveis (TENNIS):
+  1. [12869] RAFAEL (Titular) - Uso: 0/1 - Prefs: ✗
+
+Selecione o membro para configurar (número): 1
+
+Configurando preferências de Tennis para RAFAEL...
+
+Adicionar sessão de interesse:
+  Quadra disponíveis:
+    1. Quadra_Saibro
+  Quadra (número): 1
+  Adicionado: Quadra_Saibro
+
+Adicionar outra? (s/n): n
+
+Horários preferidos (ex: 08:00,09:00 ou Enter para todos): 10:00,14:00
+
+Preferências de Tennis salvas para RAFAEL:
+  1. Quadra_Saibro (prioridade 1)
+  Horários: 10:00, 14:00
+```
+
 ### 3. Monitorar sessões
 
 ```bash
-# Um membro por ID
-python main.py --member 12869
-
-# Um membro por nome (case insensitive)
+# Surf (padrão)
 python main.py --member rafael
+
+# Tennis
+python main.py --sport tennis --member rafael
 
 # Múltiplos membros
 python main.py --member rafael,gabriel,julia
@@ -193,21 +239,19 @@ python main.py --member rafael --once
 
 # Sem reservar automaticamente
 python main.py --member rafael --once --no-auto-book
+
+# Tennis
+python main.py --sport tennis --member rafael --once
 ```
 
 ### 5. Ver inscrições
 
 ```bash
+# Surf
 python main.py --inscriptions
-```
 
-Saída:
-```
-Found 5 inscription(s):
-  1. 2025-11-25 - RAFAEL - Direito a 1 Swell cortesia
-     Usos: 0/1 - Usado
-  2. 2025-12-15 - RAFAEL - Direito a 1 Swell cortesia
-     Usos: 1/1 - Disponível
+# Tennis
+python main.py --sport tennis --inscriptions
 ```
 
 ---
@@ -228,15 +272,9 @@ Cache de tokens de autenticação Firebase.
 }
 ```
 
-| Campo | Tipo | Descrição |
-|-------|------|-----------|
-| `id_token` | string | Token JWT do Firebase |
-| `refresh_token` | string | Token para renovação |
-| `expires_at` | float | Timestamp Unix de expiração |
-
 ### `.beyondtheclub_members.json`
 
-Cache de membros e suas preferências.
+Cache de membros e suas preferências (separadas por esporte).
 
 ```json
 {
@@ -248,24 +286,25 @@ Cache de membros e suas preferências.
       "is_titular": true,
       "usage": 0,
       "limit": 1
-    },
-    {
-      "member_id": 16230,
-      "name": "GABRIEL NEVES SIQUEIRA",
-      "social_name": "GABRIEL",
-      "is_titular": false,
-      "usage": 0,
-      "limit": 1
     }
   ],
   "preferences": {
     "12869": {
-      "sessions": [
-        {"level": "Iniciante1", "wave_side": "Lado_esquerdo"},
-        {"level": "Iniciante2", "wave_side": "Lado_direito"}
-      ],
-      "target_hours": ["08:00", "09:00"],
-      "target_dates": []
+      "surf": {
+        "sessions": [
+          {"attributes": {"level": "Iniciante1", "wave_side": "Lado_esquerdo"}},
+          {"attributes": {"level": "Avançado1", "wave_side": "Lado_direito"}}
+        ],
+        "target_hours": ["08:00", "09:00"],
+        "target_dates": []
+      },
+      "tennis": {
+        "sessions": [
+          {"attributes": {"court": "Quadra_Saibro"}}
+        ],
+        "target_hours": ["10:00", "14:00"],
+        "target_dates": []
+      }
     }
   },
   "last_updated": "2025-12-22T10:30:00.123456"
@@ -289,11 +328,18 @@ Chave: `member_id` como string
 
 | Campo | Tipo | Descrição |
 |-------|------|-----------|
-| `sessions` | array | Lista de preferências de sessão em ordem de prioridade |
-| `sessions[].level` | string | Nível: Iniciante1, Iniciante2, Intermediario1, Intermediario2, Avançado1, Avançado2 |
-| `sessions[].wave_side` | string | Lado: Lado_esquerdo, Lado_direito |
-| `target_hours` | array | Horários preferidos (ex: ["08:00", "09:00"]) |
-| `target_dates` | array | Datas específicas (ex: ["2025-01-15"]) |
+| `{sport}` | object | Preferências separadas por esporte (surf, tennis) |
+| `{sport}.sessions` | array | Lista de preferências de sessão em ordem de prioridade |
+| `{sport}.sessions[].attributes` | object | Atributos da sessão (varia por esporte) |
+| `{sport}.target_hours` | array | Horários preferidos (ex: ["08:00", "09:00"]) |
+| `{sport}.target_dates` | array | Datas específicas (ex: ["2025-01-15"]) |
+
+#### Atributos por Esporte
+
+| Esporte | Atributos |
+|---------|-----------|
+| surf | `level`, `wave_side` |
+| tennis | `court` |
 
 ---
 
@@ -310,10 +356,11 @@ Chave: `member_id` como string
 ## Fluxo de Monitoramento
 
 ```
-1. Carregar membros (cache ou API)
-2. Selecionar membro(s) para monitorar
-3. Validar/configurar preferências de cada membro
-4. Para cada membro:
+1. Selecionar esporte (--sport)
+2. Carregar membros (cache ou API)
+3. Selecionar membro(s) para monitorar
+4. Validar/configurar preferências de cada membro para o esporte
+5. Para cada membro:
    a. Para cada preferência (em ordem de prioridade):
       - Buscar datas disponíveis
       - Para cada data:
@@ -323,7 +370,7 @@ Chave: `member_id` como string
    b. Se encontrar sessão disponível:
       - Reservar (passando member_id)
       - Registrar no cache de sessões reservadas
-5. Aguardar intervalo e repetir (se não for --once)
+6. Aguardar intervalo e repetir (se não for --once)
 ```
 
 ---
@@ -336,9 +383,9 @@ Exemplo de log durante monitoramento:
 ```
 2025-12-22 10:30:00 | INFO     | Checking sessions for RAFAEL...
 2025-12-22 10:30:01 | INFO     | [RAFAEL] Checking Iniciante1 / Lado_esquerdo
-2025-12-22 10:30:02 | INFO     | [RAFAEL] Found 3 dates for Iniciante1/Lado_esquerdo
-2025-12-22 10:30:03 | INFO     | [RAFAEL] Found: 2025-12-28 08:00 (Iniciante1/Lado_esquerdo) - 2 spots
-2025-12-22 10:30:03 | INFO     | [RAFAEL] Booking: 2025-12-28 08:00 (Iniciante1/Lado_esquerdo)
+2025-12-22 10:30:02 | INFO     | [RAFAEL] Found 3 dates for Iniciante1 / Lado_esquerdo
+2025-12-22 10:30:03 | INFO     | [RAFAEL] Found: 2025-12-28 08:00 (Iniciante1 / Lado_esquerdo) - 2 spots
+2025-12-22 10:30:03 | INFO     | [RAFAEL] Booking: 2025-12-28 08:00 (Iniciante1 / Lado_esquerdo)
 2025-12-22 10:30:04 | INFO     | [RAFAEL] Successfully booked session 12345!
 ```
 
@@ -357,7 +404,7 @@ BeyondTheClub/
 ├── .beyondtheclub_members.json      # Cache de membros (não versionado)
 └── src/
     ├── __init__.py
-    ├── config.py                    # Dataclasses de configuração
+    ├── config.py                    # Dataclasses de configuração + SportConfig
     ├── firebase_auth.py             # Autenticação Firebase
     ├── sms_auth.py                  # Autenticação via SMS
     ├── beyond_api.py                # Cliente HTTP da API Beyond
@@ -370,12 +417,12 @@ BeyondTheClub/
 | Módulo | Responsabilidade |
 |--------|------------------|
 | `main.py` | CLI, parsing de argumentos, fluxos interativos |
-| `bot.py` | Orquestração, cache de membros/tokens, preferências |
-| `session_monitor.py` | Busca de sessões, booking, filtros |
-| `beyond_api.py` | Chamadas HTTP à API do Beyond |
+| `bot.py` | Orquestração, cache de membros/tokens, preferências por esporte |
+| `session_monitor.py` | Busca de sessões, booking, filtros (genérico por esporte) |
+| `beyond_api.py` | Chamadas HTTP à API do Beyond (parametrizadas por esporte) |
 | `firebase_auth.py` | Autenticação e refresh de tokens Firebase |
 | `sms_auth.py` | Fluxo de autenticação via SMS |
-| `config.py` | Carregamento de configurações do .env |
+| `config.py` | Carregamento de configurações do .env + SportConfig |
 
 ---
 
@@ -383,10 +430,10 @@ BeyondTheClub/
 
 | Endpoint | Método | Descrição |
 |----------|--------|-----------|
-| `/schedules/surf/status` | GET | Lista membros e uso de sessões |
-| `/schedules/surf/dates` | GET | Datas disponíveis para nível/lado |
-| `/schedules/surf/times` | GET | Horários disponíveis para data/nível/lado |
-| `/schedules/surf/book` | POST | Reservar sessão |
+| `/schedules/{sport}/status` | GET | Lista membros e uso de sessões |
+| `/schedules/{sport}/dates` | GET | Datas disponíveis para atributos |
+| `/schedules/{sport}/times` | GET | Horários disponíveis para data/atributos |
+| `/schedules/{sport}/book` | POST | Reservar sessão |
 | `/inscriptions` | GET | Inscrições do usuário |
 
 ---
@@ -408,3 +455,10 @@ Verifique se o nome está correto (case insensitive) ou use o ID numérico.
 
 ### Preferências não configuradas
 O bot obriga configurar preferências antes de iniciar monitoramento. Use `--configure` ou será solicitado automaticamente.
+
+### Esporte incorreto
+Verifique se está usando o argumento `--sport` correto:
+```bash
+# Para tennis
+python main.py --sport tennis --configure
+```

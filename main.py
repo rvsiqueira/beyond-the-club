@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """
-BeyondTheClub Surf Session Booking Bot
+BeyondTheClub Sport Session Booking Bot
 
-Monitors surf session availability and automatically books sessions
+Monitors sport session availability and automatically books sessions
 based on configured preferences.
 """
 
@@ -12,36 +12,35 @@ import sys
 from datetime import datetime
 
 from src.bot import BeyondBot, Member, MemberPreferences, SessionPreference
-from src.config import load_config
+from src.config import load_config, SportConfig, SPORT_CONFIGS
 
-# Available levels and wave sides
-LEVELS = [
-    "Iniciante1",
-    "Iniciante2",
-    "Intermediario1",
-    "Intermediario2",
-    "Avançado1",
-    "Avançado2",
-]
-WAVE_SIDES = ["Lado_esquerdo", "Lado_direito"]
+
+def get_sport_config(bot: BeyondBot) -> SportConfig:
+    """Get the current sport configuration."""
+    return bot.get_sport_config()
 
 
 def display_members(members: list, bot: BeyondBot):
     """Display list of members with their preferences status."""
-    print("\nMembros disponíveis:")
+    sport = bot._current_sport
+    print(f"\nMembros disponíveis ({sport.upper()}):")
     for i, m in enumerate(members, 1):
         titular = " (Titular)" if m.is_titular else ""
-        has_prefs = "✓" if bot.has_member_preferences(m.member_id) else "✗"
+        has_prefs = "✓" if bot.has_member_preferences(m.member_id, sport) else "✗"
         print(f"  {i}. [{m.member_id}] {m.social_name}{titular} - Uso: {m.usage}/{m.limit} - Prefs: {has_prefs}")
 
 
-def display_member_preferences(bot: BeyondBot, member: Member):
+def display_member_preferences(bot: BeyondBot, member: Member, sport: str = None):
     """Display current preferences for a member."""
-    prefs = bot.get_member_preferences(member.member_id)
+    sport = sport or bot._current_sport
+    sport_config = bot.get_sport_config()
+    prefs = bot.get_member_preferences(member.member_id, sport)
+
     if prefs and prefs.sessions:
-        print(f"\n{member.social_name} possui preferências configuradas:")
+        print(f"\n{member.social_name} possui preferências de {sport_config.name} configuradas:")
         for i, s in enumerate(prefs.sessions, 1):
-            print(f"  {i}. {s.level} / {s.wave_side}")
+            attrs_str = " / ".join(s.attributes.values())
+            print(f"  {i}. {attrs_str}")
         if prefs.target_hours:
             print(f"  Horários: {', '.join(prefs.target_hours)}")
         if prefs.target_dates:
@@ -52,54 +51,70 @@ def display_member_preferences(bot: BeyondBot, member: Member):
 
 def configure_member_preferences(bot: BeyondBot, member: Member):
     """Interactive configuration of member preferences."""
+    sport = bot._current_sport
+    sport_config = bot.get_sport_config()
+
     # Check if already has preferences
-    if display_member_preferences(bot, member):
+    if display_member_preferences(bot, member, sport):
         keep = input("\nDeseja manter estas preferências? (s/n): ").strip().lower()
         if keep == 's':
             print("Preferências mantidas.")
             return
         print("Apagando preferências anteriores...")
-        bot.clear_member_preferences(member.member_id)
+        bot.clear_member_preferences(member.member_id, sport)
 
-    print(f"\nConfigurando preferências para {member.social_name}...")
+    print(f"\nConfigurando preferências de {sport_config.name} para {member.social_name}...")
 
     sessions = []
+    attributes_list = sport_config.get_attributes()
+
     while True:
         print("\nAdicionar sessão de interesse:")
-        print("  Níveis disponíveis:")
-        for i, level in enumerate(LEVELS, 1):
-            print(f"    {i}. {level}")
-        level_choice = input("  Nível (número): ").strip()
-        try:
-            level = LEVELS[int(level_choice) - 1]
-        except (ValueError, IndexError):
-            print("  Opção inválida!")
+        selected_attrs = {}
+
+        # Collect each attribute
+        for attr_name in attributes_list:
+            options = sport_config.get_options(attr_name)
+            label = sport_config.attribute_labels.get(attr_name, attr_name)
+
+            print(f"  {label} disponíveis:")
+            for i, opt in enumerate(options, 1):
+                print(f"    {i}. {opt}")
+
+            choice = input(f"  {label} (número): ").strip()
+            try:
+                selected_attrs[attr_name] = options[int(choice) - 1]
+            except (ValueError, IndexError):
+                print("  Opção inválida!")
+                break
+        else:
+            # All attributes collected successfully
+            pref = SessionPreference(attributes=selected_attrs)
+            sessions.append(pref)
+            attrs_str = " / ".join(selected_attrs.values())
+            print(f"  Adicionado: {attrs_str}")
+
+            another = input("\nAdicionar outra? (s/n): ").strip().lower()
+            if another != 's':
+                break
             continue
 
-        print("  Lados disponíveis:")
-        for i, side in enumerate(WAVE_SIDES, 1):
-            print(f"    {i}. {side}")
-        side_choice = input("  Lado (número): ").strip()
-        try:
-            wave_side = WAVE_SIDES[int(side_choice) - 1]
-        except (ValueError, IndexError):
-            print("  Opção inválida!")
-            continue
-
-        sessions.append(SessionPreference(level=level, wave_side=wave_side))
-        print(f"  Adicionado: {level} / {wave_side}")
-
-        another = input("\nAdicionar outra? (s/n): ").strip().lower()
-        if another != 's':
+        # If we broke out due to invalid input, ask to retry
+        retry = input("\nTentar novamente? (s/n): ").strip().lower()
+        if retry != 's':
             break
+
+    if not sessions:
+        print("Nenhuma sessão configurada!")
+        return
 
     # Target hours
     hours_input = input("\nHorários preferidos (ex: 08:00,09:00 ou Enter para todos): ").strip()
-    target_hours = [h.strip() for h in hours_input.split(",")] if hours_input else []
+    target_hours = [h.strip() for h in hours_input.split(",") if h.strip()] if hours_input else []
 
     # Target dates
     dates_input = input("Datas específicas (ex: 2025-01-15,2025-01-16 ou Enter para todas): ").strip()
-    target_dates = [d.strip() for d in dates_input.split(",")] if dates_input else []
+    target_dates = [d.strip() for d in dates_input.split(",") if d.strip()] if dates_input else []
 
     # Save preferences
     prefs = MemberPreferences(
@@ -107,11 +122,12 @@ def configure_member_preferences(bot: BeyondBot, member: Member):
         target_hours=target_hours,
         target_dates=target_dates
     )
-    bot.set_member_preferences(member.member_id, prefs)
+    bot.set_member_preferences(member.member_id, prefs, sport)
 
-    print(f"\nPreferências salvas para {member.social_name}:")
+    print(f"\nPreferências de {sport_config.name} salvas para {member.social_name}:")
     for i, s in enumerate(sessions, 1):
-        print(f"  {i}. {s.level} / {s.wave_side} (prioridade {i})")
+        attrs_str = " / ".join(s.attributes.values())
+        print(f"  {i}. {attrs_str} (prioridade {i})")
     if target_hours:
         print(f"  Horários: {', '.join(target_hours)}")
     if target_dates:
@@ -171,16 +187,18 @@ def parse_member_argument(bot: BeyondBot, member_arg: str, members: list) -> lis
 
 def ensure_member_preferences(bot: BeyondBot, member: Member) -> bool:
     """Ensure member has preferences, configure if not."""
-    if bot.has_member_preferences(member.member_id):
-        if display_member_preferences(bot, member):
+    sport = bot._current_sport
+    if bot.has_member_preferences(member.member_id, sport):
+        if display_member_preferences(bot, member, sport):
             keep = input("\nManter preferências? (s/n): ").strip().lower()
             if keep == 's':
                 return True
-            bot.clear_member_preferences(member.member_id)
+            bot.clear_member_preferences(member.member_id, sport)
 
-    print(f"\n{member.social_name} não possui preferências configuradas.")
+    sport_config = bot.get_sport_config()
+    print(f"\n{member.social_name} não possui preferências de {sport_config.name} configuradas.")
     configure_member_preferences(bot, member)
-    return bot.has_member_preferences(member.member_id)
+    return bot.has_member_preferences(member.member_id, sport)
 
 
 def setup_logging(verbose: bool = False):
@@ -202,7 +220,14 @@ def setup_logging(verbose: bool = False):
 
 def main():
     parser = argparse.ArgumentParser(
-        description="BeyondTheClub Surf Session Booking Bot"
+        description="BeyondTheClub Sport Session Booking Bot"
+    )
+    parser.add_argument(
+        "--sport",
+        type=str,
+        default="surf",
+        choices=list(SPORT_CONFIGS.keys()),
+        help="Sport to monitor (default: surf)"
     )
     parser.add_argument(
         "--once",
@@ -232,7 +257,7 @@ def main():
     parser.add_argument(
         "--check-status",
         action="store_true",
-        help="Just check surf schedule status and exit"
+        help="Just check schedule status and exit"
     )
     parser.add_argument(
         "--inscriptions",
@@ -265,8 +290,9 @@ def main():
     setup_logging(args.verbose)
     logger = logging.getLogger(__name__)
 
+    sport_name = SPORT_CONFIGS.get(args.sport, {}).get("name", args.sport.title())
     logger.info("=" * 60)
-    logger.info("BeyondTheClub Surf Session Booking Bot")
+    logger.info(f"BeyondTheClub {sport_name} Session Booking Bot")
     logger.info("=" * 60)
 
     try:
@@ -276,6 +302,7 @@ def main():
             config.bot.auto_book = False
 
         bot = BeyondBot(config)
+        bot.set_sport(args.sport)
 
         # Initialize (authenticate)
         logger.info("Initializing bot...")
@@ -286,13 +313,13 @@ def main():
 
         if args.check_status:
             # Just check status and exit
-            status = bot.api.get_surf_status()
-            logger.info(f"Surf schedule status: {status}")
+            status = bot.api.get_schedule_status(args.sport)
+            logger.info(f"{sport_name} schedule status: {status}")
             return 0
 
         if args.inscriptions:
             # Show inscriptions and exit
-            response = bot.api.get_inscriptions()
+            response = bot.api.get_inscriptions(args.sport)
             inscriptions = response.get("value", [])
             logger.info(f"Found {len(inscriptions)} inscription(s):")
             for i, insc in enumerate(inscriptions, 1):
