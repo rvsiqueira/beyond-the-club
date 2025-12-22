@@ -5,6 +5,9 @@
 # Token cache
 .beyondtheclub_tokens.json
 
+# Members cache
+.beyondtheclub_members.json
+
 # Python
 __pycache__/
 *.py[cod]

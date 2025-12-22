@@ -180,6 +180,22 @@ class BeyondAPI:
         response.raise_for_status()
         return response.json()
 
+    def get_inscriptions(self, tags: str = "surf") -> List[dict]:
+        """
+        Get the current user's inscriptions.
+
+        Args:
+            tags: Filter by tags (default: "surf")
+
+        Returns:
+            List of inscription objects
+        """
+        url = f"{self.base_url}/inscriptions"
+        params = {"tags": tags}
+        response = self._client.get(url, headers=self._get_headers(), params=params)
+        response.raise_for_status()
+        return response.json()
+
     def close(self):
         """Close the HTTP client."""
         self._client.close()

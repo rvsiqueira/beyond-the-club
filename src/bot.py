@@ -4,8 +4,9 @@ import time
 import logging
 import json
 from pathlib import Path
-from typing import Optional
+from typing import Optional, List, Dict, Any
 from datetime import datetime
+from dataclasses import dataclass, asdict
 
 from .config import Config, load_config
 from .firebase_auth import FirebaseAuth, FirebaseTokens
@@ -15,7 +16,34 @@ from .session_monitor import SessionMonitor
 
 logger = logging.getLogger(__name__)
 
-TOKEN_CACHE_FILE = Path.home() / ".beyondtheclub_tokens.json"
+TOKEN_CACHE_FILE = Path(__file__).parent.parent / ".beyondtheclub_tokens.json"
+MEMBERS_CACHE_FILE = Path(__file__).parent.parent / ".beyondtheclub_members.json"
+
+
+@dataclass
+class SessionPreference:
+    """A session preference (level + wave side)."""
+    level: str
+    wave_side: str
+
+
+@dataclass
+class MemberPreferences:
+    """Preferences for a member."""
+    sessions: List[SessionPreference]
+    target_hours: List[str]
+    target_dates: List[str]
+
+
+@dataclass
+class Member:
+    """A member from the title."""
+    member_id: int
+    name: str
+    social_name: str
+    is_titular: bool
+    usage: int
+    limit: int
 
 
 class BeyondBot:
@@ -28,6 +56,8 @@ class BeyondBot:
         self.api: Optional[BeyondAPI] = None
         self.monitor: Optional[SessionMonitor] = None
         self._running = False
+        self._members_cache: Dict[str, Any] = {}
+        self._selected_members: List[int] = []
 
     def _save_tokens(self, tokens: FirebaseTokens):
         """Save tokens to cache file."""
@@ -66,6 +96,146 @@ class BeyondBot:
         except Exception as e:
             logger.warning(f"Could not load cached tokens: {e}")
             return None
+
+    # --- Members Cache Methods ---
+
+    def _load_members_cache(self) -> Dict[str, Any]:
+        """Load members cache from file."""
+        try:
+            if not MEMBERS_CACHE_FILE.exists():
+                return {"members": [], "preferences": {}, "last_updated": None}
+
+            data = json.loads(MEMBERS_CACHE_FILE.read_text())
+            self._members_cache = data
+            return data
+        except Exception as e:
+            logger.warning(f"Could not load members cache: {e}")
+            return {"members": [], "preferences": {}, "last_updated": None}
+
+    def _save_members_cache(self):
+        """Save members cache to file."""
+        try:
+            self._members_cache["last_updated"] = datetime.now().isoformat()
+            MEMBERS_CACHE_FILE.write_text(json.dumps(self._members_cache, indent=2))
+            logger.debug("Members cache saved")
+        except Exception as e:
+            logger.warning(f"Could not save members cache: {e}")
+
+    def refresh_members(self) -> List[Member]:
+        """Fetch members from API and update cache."""
+        if not self.api:
+            raise RuntimeError("Bot not initialized. Call initialize() first.")
+
+        response = self.api.get_surf_status()
+        members_data = response.get("value", [])
+
+        members = []
+        for item in members_data:
+            member_info = item.get("member", {})
+            member = Member(
+                member_id=member_info.get("memberId"),
+                name=member_info.get("name", ""),
+                social_name=member_info.get("socialName", ""),
+                is_titular=member_info.get("isTitular", False),
+                usage=item.get("usage", 0),
+                limit=item.get("limit", 0)
+            )
+            members.append(member)
+
+        # Update cache with new members list
+        self._members_cache["members"] = [asdict(m) for m in members]
+        self._save_members_cache()
+
+        logger.info(f"Refreshed {len(members)} members from API")
+        return members
+
+    def get_members(self, force_refresh: bool = False) -> List[Member]:
+        """Get members list (from cache or API)."""
+        if not self._members_cache:
+            self._load_members_cache()
+
+        if force_refresh or not self._members_cache.get("members"):
+            return self.refresh_members()
+
+        # Return cached members
+        members = []
+        for m in self._members_cache.get("members", []):
+            members.append(Member(
+                member_id=m["member_id"],
+                name=m["name"],
+                social_name=m["social_name"],
+                is_titular=m["is_titular"],
+                usage=m["usage"],
+                limit=m["limit"]
+            ))
+        return members
+
+    def get_member_by_id(self, member_id: int) -> Optional[Member]:
+        """Get a specific member by ID."""
+        members = self.get_members()
+        for m in members:
+            if m.member_id == member_id:
+                return m
+        return None
+
+    def get_member_by_name(self, name: str) -> Optional[Member]:
+        """Get a specific member by name (case insensitive)."""
+        members = self.get_members()
+        name_lower = name.lower()
+        for m in members:
+            if m.social_name.lower() == name_lower or m.name.lower() == name_lower:
+                return m
+        return None
+
+    def get_member_preferences(self, member_id: int) -> Optional[MemberPreferences]:
+        """Get preferences for a specific member."""
+        if not self._members_cache:
+            self._load_members_cache()
+
+        prefs_data = self._members_cache.get("preferences", {}).get(str(member_id))
+        if not prefs_data:
+            return None
+
+        sessions = [
+            SessionPreference(level=s["level"], wave_side=s["wave_side"])
+            for s in prefs_data.get("sessions", [])
+        ]
+        return MemberPreferences(
+            sessions=sessions,
+            target_hours=prefs_data.get("target_hours", []),
+            target_dates=prefs_data.get("target_dates", [])
+        )
+
+    def set_member_preferences(self, member_id: int, preferences: MemberPreferences):
+        """Set preferences for a specific member."""
+        if not self._members_cache:
+            self._load_members_cache()
+
+        if "preferences" not in self._members_cache:
+            self._members_cache["preferences"] = {}
+
+        self._members_cache["preferences"][str(member_id)] = {
+            "sessions": [asdict(s) for s in preferences.sessions],
+            "target_hours": preferences.target_hours,
+            "target_dates": preferences.target_dates
+        }
+        self._save_members_cache()
+        logger.info(f"Saved preferences for member {member_id}")
+
+    def clear_member_preferences(self, member_id: int):
+        """Clear preferences for a specific member."""
+        if not self._members_cache:
+            self._load_members_cache()
+
+        if "preferences" in self._members_cache:
+            self._members_cache["preferences"].pop(str(member_id), None)
+            self._save_members_cache()
+            logger.info(f"Cleared preferences for member {member_id}")
+
+    def has_member_preferences(self, member_id: int) -> bool:
+        """Check if a member has preferences configured."""
+        prefs = self.get_member_preferences(member_id)
+        return prefs is not None and len(prefs.sessions) > 0
 
     def authenticate_admin(self) -> FirebaseTokens:
         """Authenticate with admin credentials to get initial token."""
@@ -153,7 +323,11 @@ class BeyondBot:
             self.config.api_base_url,
             self.firebase_auth.get_valid_token
         )
-        self.monitor = SessionMonitor(self.api, self.config.session)
+        self.monitor = SessionMonitor(
+            self.api,
+            self.config.session,
+            get_member_preferences=self.get_member_preferences
+        )
         logger.info("Bot initialized successfully")
 
     def run_once(self) -> int:
@@ -166,6 +340,24 @@ class BeyondBot:
         if not self.monitor:
             raise RuntimeError("Bot not initialized. Call initialize() first.")
 
+        # If we have selected members, use multi-member check
+        if self._selected_members:
+            members = []
+            for member_id in self._selected_members:
+                member = self.get_member_by_id(member_id)
+                if member:
+                    members.append({
+                        "member_id": member.member_id,
+                        "social_name": member.social_name
+                    })
+
+            results = self.monitor.run_check_for_members(
+                members,
+                auto_book=self.config.bot.auto_book
+            )
+            return len([r for r in results if r.success])
+
+        # Fallback to global config
         available = self.monitor.run_check(auto_book=self.config.bot.auto_book)
         return len([s for s in available if s.id in self.monitor.get_booked_sessions()])
 
@@ -178,10 +370,27 @@ class BeyondBot:
         interval = self.config.bot.check_interval_seconds
 
         logger.info(f"Starting bot with {interval}s check interval")
-        logger.info(f"Monitoring levels: {self.config.session.levels}")
-        logger.info(f"Monitoring wave sides: {self.config.session.wave_sides}")
-        logger.info(f"Target hours: {self.config.session.target_hours or 'Any'}")
-        logger.info(f"Target dates: {self.config.session.target_dates or 'Any'}")
+
+        if self._selected_members:
+            member_names = []
+            for member_id in self._selected_members:
+                member = self.get_member_by_id(member_id)
+                if member:
+                    prefs = self.get_member_preferences(member_id)
+                    if prefs:
+                        sessions_str = ", ".join(
+                            f"{s.level}/{s.wave_side}" for s in prefs.sessions
+                        )
+                        member_names.append(f"{member.social_name} ({sessions_str})")
+                    else:
+                        member_names.append(member.social_name)
+            logger.info(f"Monitoring members: {', '.join(member_names)}")
+        else:
+            logger.info(f"Monitoring levels: {self.config.session.levels}")
+            logger.info(f"Monitoring wave sides: {self.config.session.wave_sides}")
+            logger.info(f"Target hours: {self.config.session.target_hours or 'Any'}")
+            logger.info(f"Target dates: {self.config.session.target_dates or 'Any'}")
+
         logger.info(f"Auto-book: {self.config.bot.auto_book}")
 
         try:
