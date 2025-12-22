@@ -18,6 +18,7 @@ logger = logging.getLogger(__name__)
 
 TOKEN_CACHE_FILE = Path(__file__).parent.parent / ".beyondtheclub_tokens.json"
 MEMBERS_CACHE_FILE = Path(__file__).parent.parent / ".beyondtheclub_members.json"
+AVAILABILITY_CACHE_FILE = Path(__file__).parent.parent / ".beyondtheclub_availability.json"
 
 
 @dataclass
@@ -67,6 +68,36 @@ class Member:
     is_titular: bool
     usage: int
     limit: int
+
+
+@dataclass
+class AvailableSlot:
+    """Represents an available time slot."""
+    date: str
+    interval: str
+    level: str
+    wave_side: str
+    available: int
+    max_quantity: int
+    package_id: int
+    product_id: int
+
+    @property
+    def combo_key(self) -> str:
+        """Return the level/wave_side combo key."""
+        return f"{self.level}/{self.wave_side}"
+
+    def to_dict(self) -> dict:
+        return {
+            "date": self.date,
+            "interval": self.interval,
+            "level": self.level,
+            "wave_side": self.wave_side,
+            "available": self.available,
+            "max": self.max_quantity,
+            "packageId": self.package_id,
+            "productId": self.product_id
+        }
 
 
 class BeyondBot:
@@ -561,3 +592,620 @@ class BeyondBot:
             self.api.close()
         self.firebase_auth.close()
         self.sms_auth.close()
+
+    # --- Availability Cache Methods ---
+
+    def _load_availability_cache(self) -> Dict[str, Any]:
+        """Load availability cache from file."""
+        try:
+            if not AVAILABILITY_CACHE_FILE.exists():
+                return {"scanned_at": None, "dates": {}, "packages": {}}
+
+            data = json.loads(AVAILABILITY_CACHE_FILE.read_text())
+            return data
+        except Exception as e:
+            logger.warning(f"Could not load availability cache: {e}")
+            return {"scanned_at": None, "dates": {}, "packages": {}}
+
+    def _save_availability_cache(self, cache: Dict[str, Any]):
+        """Save availability cache to file."""
+        try:
+            cache["scanned_at"] = datetime.now().isoformat()
+            AVAILABILITY_CACHE_FILE.write_text(json.dumps(cache, indent=2))
+            logger.debug("Availability cache saved")
+        except Exception as e:
+            logger.warning(f"Could not save availability cache: {e}")
+
+    def is_availability_cache_valid(self) -> bool:
+        """
+        Check if availability cache is valid (has dates >= today).
+
+        Returns:
+            True if cache exists and all dates are >= today
+        """
+        cache = self._load_availability_cache()
+        if not cache.get("dates"):
+            return False
+
+        today = datetime.now().strftime("%Y-%m-%d")
+        for date_str in cache["dates"].keys():
+            if date_str < today:
+                return False
+
+        return True
+
+    def get_availability_cache(self) -> Dict[str, Any]:
+        """Get the availability cache."""
+        return self._load_availability_cache()
+
+    def scan_availability(self) -> List[AvailableSlot]:
+        """
+        Scan all level/wave_side combinations and return available slots.
+
+        Returns:
+            List of AvailableSlot objects
+        """
+        if not self.api:
+            raise RuntimeError("Bot not initialized. Call initialize() first.")
+
+        sport_config = self.get_sport_config()
+        members = self.get_members()
+        if not members:
+            raise RuntimeError("No members found")
+
+        # Use any member for the intervals query
+        any_member_id = members[0].member_id
+
+        all_slots = []
+        cache = {"scanned_at": None, "dates": {}, "packages": {}}
+
+        # Get all level/wave_side combinations
+        levels = sport_config.get_options("level")
+        wave_sides = sport_config.get_options("wave_side")
+
+        for level in levels:
+            for wave_side in wave_sides:
+                combo_key = f"{level}/{wave_side}"
+                tags = list(sport_config.base_tags) + [level, wave_side]
+
+                logger.info(f"Scanning {combo_key}...")
+
+                try:
+                    # Get available dates for this combination
+                    dates_response = self.api.get_available_dates(tags, sport=self._current_sport)
+
+                    # Handle API response wrapper
+                    if isinstance(dates_response, dict) and "value" in dates_response:
+                        dates_list = dates_response["value"]
+                    else:
+                        dates_list = dates_response
+
+                    # Parse dates (they come as "2025-12-26T00:00:00")
+                    dates = []
+                    for date_item in dates_list:
+                        if isinstance(date_item, str):
+                            # Extract just the date part
+                            date_str = date_item.split("T")[0]
+                            dates.append(date_str)
+
+                    logger.info(f"  Found {len(dates)} dates for {combo_key}")
+
+                    for date in dates:
+                        try:
+                            # Get intervals for this date
+                            intervals_data = self.api.get_intervals(
+                                date=date,
+                                tags=tags,
+                                member_id=any_member_id,
+                                sport=self._current_sport
+                            )
+
+                            # Parse the packages from response
+                            # Structure: value[] -> each has packageId and products[]
+                            packages_list = intervals_data if isinstance(intervals_data, list) else []
+
+                            for package in packages_list:
+                                package_id = package.get("packageId")
+                                products = package.get("products", [])
+
+                                for product in products:
+                                    product_id = product.get("productId", package_id)
+
+                                    # Store package mapping
+                                    cache["packages"][combo_key] = {
+                                        "packageId": package_id,
+                                        "productId": product_id
+                                    }
+
+                                    invitation = product.get("invitation", {})
+                                    solos = invitation.get("solos", [])
+
+                                    for solo in solos:
+                                        if solo.get("isAvailable", False):
+                                            slot = AvailableSlot(
+                                                date=date,
+                                                interval=solo.get("interval", ""),
+                                                level=level,
+                                                wave_side=wave_side,
+                                                available=solo.get("availableQuantity", 0),
+                                                max_quantity=solo.get("maxQuantity", 0),
+                                                package_id=package_id,
+                                                product_id=product_id
+                                            )
+                                            all_slots.append(slot)
+
+                                            # Add to cache
+                                            if date not in cache["dates"]:
+                                                cache["dates"][date] = {}
+                                            if combo_key not in cache["dates"][date]:
+                                                cache["dates"][date][combo_key] = []
+
+                                            cache["dates"][date][combo_key].append({
+                                                "interval": slot.interval,
+                                                "available": slot.available,
+                                                "max": slot.max_quantity
+                                            })
+
+                        except Exception as e:
+                            logger.error(f"Error getting intervals for {date} {combo_key}: {e}")
+
+                except Exception as e:
+                    logger.error(f"Error scanning {combo_key}: {e}")
+
+        # Save cache
+        self._save_availability_cache(cache)
+        logger.info(f"Scan complete. Found {len(all_slots)} available slots.")
+
+        return all_slots
+
+    def get_slots_from_cache(self) -> List[AvailableSlot]:
+        """
+        Get available slots from cache.
+
+        Returns:
+            List of AvailableSlot objects from cache
+        """
+        cache = self._load_availability_cache()
+        slots = []
+
+        packages = cache.get("packages", {})
+
+        for date, combos in cache.get("dates", {}).items():
+            for combo_key, intervals in combos.items():
+                parts = combo_key.split("/")
+                if len(parts) != 2:
+                    continue
+                level, wave_side = parts
+
+                pkg = packages.get(combo_key, {})
+                package_id = pkg.get("packageId", 0)
+                product_id = pkg.get("productId", 0)
+
+                for interval_data in intervals:
+                    slot = AvailableSlot(
+                        date=date,
+                        interval=interval_data.get("interval", ""),
+                        level=level,
+                        wave_side=wave_side,
+                        available=interval_data.get("available", 0),
+                        max_quantity=interval_data.get("max", 0),
+                        package_id=package_id,
+                        product_id=product_id
+                    )
+                    slots.append(slot)
+
+        # Sort by date and interval
+        slots.sort(key=lambda s: (s.date, s.interval, s.combo_key))
+        return slots
+
+    def create_booking_for_slot(
+        self,
+        slot: AvailableSlot,
+        member_id: int
+    ) -> dict:
+        """
+        Create a booking for a specific slot and member.
+
+        Args:
+            slot: The AvailableSlot to book
+            member_id: The member ID to book for
+
+        Returns:
+            Booking response with voucherCode and accessCode
+        """
+        if not self.api:
+            raise RuntimeError("Bot not initialized. Call initialize() first.")
+
+        sport_config = self.get_sport_config()
+        tags = list(sport_config.base_tags) + [slot.level, slot.wave_side]
+
+        return self.api.create_booking(
+            package_id=slot.package_id,
+            product_id=slot.product_id,
+            member_id=member_id,
+            tags=tags,
+            interval=slot.interval,
+            date=slot.date,
+            sport=self._current_sport
+        )
+
+    def swap_booking(
+        self,
+        voucher_code: str,
+        new_member_id: int,
+        slot: AvailableSlot
+    ) -> dict:
+        """
+        Swap a booking from one member to another atomically.
+
+        Args:
+            voucher_code: The voucher code of the booking to cancel
+            new_member_id: The new member ID to book for
+            slot: The slot info for the new booking
+
+        Returns:
+            New booking response
+        """
+        if not self.api:
+            raise RuntimeError("Bot not initialized. Call initialize() first.")
+
+        # Cancel the old booking
+        logger.info(f"Cancelling booking {voucher_code}...")
+        self.api.cancel_booking(voucher_code, sport=self._current_sport)
+
+        # Create new booking immediately
+        logger.info(f"Creating new booking for member {new_member_id}...")
+        return self.create_booking_for_slot(slot, new_member_id)
+
+    def get_members_without_booking(self) -> List[Member]:
+        """
+        Get members that don't have an active booking.
+
+        Returns:
+            List of members without active (AccessReady) bookings
+        """
+        if not self.api:
+            raise RuntimeError("Bot not initialized. Call initialize() first.")
+
+        members = self.get_members()
+        bookings = self.api.list_bookings(self._current_sport)
+
+        # Get member IDs with active bookings
+        booked_member_ids = set()
+        for booking in bookings:
+            status = booking.get("status", "")
+            if status == "AccessReady":
+                member = booking.get("member", {})
+                member_id = member.get("memberId")
+                if member_id:
+                    booked_member_ids.add(member_id)
+
+        # Filter out members with active bookings
+        available_members = [m for m in members if m.member_id not in booked_member_ids]
+        return available_members
+
+    def find_matching_slot_for_member(
+        self,
+        member_id: int,
+        target_dates: Optional[List[str]] = None,
+        refresh_availability: bool = True
+    ) -> Optional[AvailableSlot]:
+        """
+        Find the first available slot matching member's preferences.
+
+        Args:
+            member_id: Member ID to find slot for
+            target_dates: Optional list of specific dates (None = any date >= today)
+            refresh_availability: If True, scan availability; if False, use cache
+
+        Returns:
+            First matching AvailableSlot or None
+        """
+        prefs = self.get_member_preferences(member_id, self._current_sport)
+        if not prefs or not prefs.sessions:
+            logger.warning(f"Member {member_id} has no preferences configured")
+            return None
+
+        # Get available slots
+        if refresh_availability:
+            slots = self.scan_availability()
+        else:
+            slots = self.get_slots_from_cache()
+
+        if not slots:
+            return None
+
+        # Filter by target dates if specified
+        today = datetime.now().strftime("%Y-%m-%d")
+        if target_dates:
+            slots = [s for s in slots if s.date in target_dates and s.date >= today]
+        else:
+            slots = [s for s in slots if s.date >= today]
+
+        # Filter by target hours if configured in preferences
+        if prefs.target_hours:
+            slots = [s for s in slots if s.interval in prefs.target_hours]
+
+        # Filter by target dates from preferences (additional filter)
+        if prefs.target_dates:
+            slots = [s for s in slots if s.date in prefs.target_dates]
+
+        # Sort slots by date and interval
+        slots.sort(key=lambda s: (s.date, s.interval))
+
+        # Find first slot matching any preference (in priority order)
+        for session_pref in prefs.sessions:
+            pref_combo = f"{session_pref.level}/{session_pref.wave_side}"
+            for slot in slots:
+                if slot.combo_key == pref_combo and slot.available > 0:
+                    return slot
+
+        return None
+
+    def run_auto_monitor(
+        self,
+        member_ids: List[int],
+        target_dates: Optional[List[str]] = None,
+        duration_minutes: int = 120,
+        check_interval_seconds: int = 30,
+        on_status_update: Optional[callable] = None
+    ) -> Dict[int, dict]:
+        """
+        Run automatic monitoring and booking for selected members.
+
+        OPTIMIZED: Only scans availability for each member's preferences,
+        not all combinations. Tries to book immediately when slot is found.
+
+        Args:
+            member_ids: List of member IDs to monitor (without active bookings)
+            target_dates: Optional list of specific dates (None = any date)
+            duration_minutes: How long to run the monitor (default: 120 min)
+            check_interval_seconds: How often to check (default: 30 sec)
+            on_status_update: Optional callback for status updates
+
+        Returns:
+            Dict mapping member_id -> booking result (or error info)
+        """
+        if not self.api:
+            raise RuntimeError("Bot not initialized. Call initialize() first.")
+
+        results = {}
+        pending_members = list(member_ids)  # Preserve order
+        start_time = time.time()
+        end_time = start_time + (duration_minutes * 60)
+
+        # Helper to log and optionally callback
+        def status_update(msg: str, level: str = "info"):
+            if level == "info":
+                logger.info(msg)
+            elif level == "error":
+                logger.error(msg)
+            elif level == "warning":
+                logger.warning(msg)
+            if on_status_update:
+                on_status_update(msg, level)
+
+        status_update(f"Auto-monitor iniciado para {len(pending_members)} membro(s)")
+        status_update(f"Duracao: {duration_minutes} min | Intervalo: {check_interval_seconds}s")
+        if target_dates:
+            status_update(f"Datas alvo: {', '.join(target_dates)}")
+        else:
+            status_update("Datas alvo: Qualquer data disponivel")
+
+        check_count = 0
+        while pending_members and time.time() < end_time:
+            check_count += 1
+            elapsed = int(time.time() - start_time)
+            remaining = int((end_time - time.time()) / 60)
+
+            status_update(f"\n=== Check #{check_count} | {elapsed}s decorridos | {remaining} min restantes ===")
+            status_update(f"Membros pendentes: {len(pending_members)}")
+
+            # Process each pending member
+            members_to_remove = []
+
+            for member_id in pending_members:
+                member = self.get_member_by_id(member_id)
+                if not member:
+                    status_update(f"Membro {member_id} nao encontrado", "warning")
+                    members_to_remove.append(member_id)
+                    continue
+
+                prefs = self.get_member_preferences(member_id, self._current_sport)
+                if not prefs or not prefs.sessions:
+                    status_update(f"{member.social_name}: Sem preferencias configuradas", "warning")
+                    members_to_remove.append(member_id)
+                    results[member_id] = {"error": "Sem preferencias configuradas"}
+                    continue
+
+                status_update(f"\n{member.social_name}: Buscando slots...")
+
+                # Try each preference in priority order
+                booked = False
+                for pref_idx, session_pref in enumerate(prefs.sessions, 1):
+                    combo_key = f"{session_pref.level}/{session_pref.wave_side}"
+                    status_update(f"  [{pref_idx}/{len(prefs.sessions)}] Verificando {combo_key}...")
+
+                    try:
+                        # Fast search for this specific combo
+                        slot = self._find_slot_for_combo(
+                            level=session_pref.level,
+                            wave_side=session_pref.wave_side,
+                            member_id=member_id,
+                            target_dates=target_dates,
+                            target_hours=prefs.target_hours
+                        )
+
+                        if slot:
+                            status_update(f"  Slot encontrado! {slot.date} {slot.interval} ({slot.combo_key})")
+
+                            try:
+                                result = self.create_booking_for_slot(slot, member_id)
+                                voucher = result.get("voucherCode", "N/A")
+                                access = result.get("accessCode", result.get("invitation", {}).get("accessCode", "N/A"))
+
+                                status_update(f"  AGENDADO! Voucher: {voucher} | Access: {access}")
+
+                                results[member_id] = {
+                                    "success": True,
+                                    "voucher": voucher,
+                                    "access_code": access,
+                                    "slot": slot.to_dict(),
+                                    "member_name": member.social_name
+                                }
+                                members_to_remove.append(member_id)
+                                booked = True
+                                break  # Stop checking other preferences
+
+                            except Exception as e:
+                                error_msg = str(e)
+                                # Check if it's a "already booked" error
+                                if "ja possui" in error_msg.lower() or "already" in error_msg.lower():
+                                    status_update(f"  Membro ja possui agendamento ativo", "warning")
+                                    members_to_remove.append(member_id)
+                                    results[member_id] = {"error": "Ja possui agendamento ativo"}
+                                    booked = True
+                                    break
+                                else:
+                                    status_update(f"  Erro ao agendar: {e}", "error")
+                                    # Continue to next preference
+                        else:
+                            status_update(f"  Nenhum slot disponivel para {combo_key}")
+
+                    except Exception as e:
+                        status_update(f"  Erro ao buscar {combo_key}: {e}", "error")
+
+                if not booked:
+                    pref_combos = [f"{s.level}/{s.wave_side}" for s in prefs.sessions]
+                    status_update(f"  Nenhum slot encontrado para preferencias: {pref_combos}")
+
+            # Remove processed members
+            for mid in members_to_remove:
+                if mid in pending_members:
+                    pending_members.remove(mid)
+
+            # Wait before next check
+            if pending_members and time.time() < end_time:
+                status_update(f"\nAguardando {check_interval_seconds}s para proximo check...")
+                time.sleep(check_interval_seconds)
+
+        # Final summary
+        if not pending_members:
+            status_update("\nTodos os membros foram agendados!")
+        else:
+            remaining_names = []
+            for mid in pending_members:
+                m = self.get_member_by_id(mid)
+                remaining_names.append(m.social_name if m else str(mid))
+            status_update(f"\nTempo esgotado. Membros nao agendados: {', '.join(remaining_names)}")
+
+        return results
+
+    def _find_slot_for_combo(
+        self,
+        level: str,
+        wave_side: str,
+        member_id: int,
+        target_dates: Optional[List[str]] = None,
+        target_hours: Optional[List[str]] = None
+    ) -> Optional[AvailableSlot]:
+        """
+        Fast search for available slot for a specific level/wave_side combo.
+
+        Only queries the API for this specific combination, not all combos.
+
+        Args:
+            level: Session level (e.g., "Iniciante2")
+            wave_side: Wave side (e.g., "Lado_esquerdo")
+            member_id: Member ID for the query
+            target_dates: Optional list of specific dates
+            target_hours: Optional list of specific hours
+
+        Returns:
+            First available AvailableSlot or None
+        """
+        sport_config = self.get_sport_config()
+        tags = list(sport_config.base_tags) + [level, wave_side]
+        combo_key = f"{level}/{wave_side}"
+        today = datetime.now().strftime("%Y-%m-%d")
+
+        # Get available dates for this combo
+        try:
+            dates_response = self.api.get_available_dates(tags, sport=self._current_sport)
+            if isinstance(dates_response, dict) and "value" in dates_response:
+                dates_list = dates_response["value"]
+            else:
+                dates_list = dates_response
+
+            # Parse and filter dates
+            available_dates = []
+            for date_item in dates_list:
+                if isinstance(date_item, str):
+                    date_str = date_item.split("T")[0]
+                    # Filter by today and target dates
+                    if date_str >= today:
+                        if target_dates is None or date_str in target_dates:
+                            available_dates.append(date_str)
+
+            if not available_dates:
+                return None
+
+            # Sort dates
+            available_dates.sort()
+
+            # Check each date for available intervals
+            for date in available_dates:
+                try:
+                    intervals_data = self.api.get_intervals(
+                        date=date,
+                        tags=tags,
+                        member_id=member_id,
+                        sport=self._current_sport
+                    )
+
+                    # Parse intervals
+                    packages_list = intervals_data if isinstance(intervals_data, list) else []
+
+                    for package in packages_list:
+                        package_id = package.get("packageId")
+                        products = package.get("products", [])
+
+                        for product in products:
+                            product_id = product.get("productId", package_id)
+                            invitation = product.get("invitation", {})
+                            solos = invitation.get("solos", [])
+
+                            # Sort solos by interval to get earliest first
+                            solos_sorted = sorted(solos, key=lambda s: s.get("interval", ""))
+
+                            for solo in solos_sorted:
+                                if not solo.get("isAvailable", False):
+                                    continue
+
+                                interval = solo.get("interval", "")
+
+                                # Filter by target hours if specified
+                                if target_hours and interval not in target_hours:
+                                    continue
+
+                                available_qty = solo.get("availableQuantity", 0)
+                                if available_qty > 0:
+                                    return AvailableSlot(
+                                        date=date,
+                                        interval=interval,
+                                        level=level,
+                                        wave_side=wave_side,
+                                        available=available_qty,
+                                        max_quantity=solo.get("maxQuantity", 0),
+                                        package_id=package_id,
+                                        product_id=product_id
+                                    )
+
+                except Exception as e:
+                    logger.error(f"Error getting intervals for {date} {combo_key}: {e}")
+                    continue
+
+        except Exception as e:
+            logger.error(f"Error getting dates for {combo_key}: {e}")
+
+        return None
