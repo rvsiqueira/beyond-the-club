@@ -11,6 +11,7 @@ from .member_service import MemberService, Member, MemberPreferences, SessionPre
 from .availability_service import AvailabilityService, AvailableSlot
 from .booking_service import BookingService
 from .monitor_service import MonitorService
+from .user_auth_service import UserAuthService, AuthTokens, AuthResult
 
 __all__ = [
     # Base
@@ -18,6 +19,7 @@ __all__ = [
     "ServiceContext",
     # Services
     "AuthService",
+    "UserAuthService",
     "MemberService",
     "AvailabilityService",
     "BookingService",
@@ -27,6 +29,8 @@ __all__ = [
     "MemberPreferences",
     "SessionPreference",
     "AvailableSlot",
+    "AuthTokens",
+    "AuthResult",
 ]
 
 
