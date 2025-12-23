@@ -1,0 +1,60 @@
+# Git
+.git
+.gitignore
+
+# Python
+__pycache__
+*.py[cod]
+*$py.class
+*.so
+.Python
+venv/
+.venv/
+env/
+ENV/
+*.egg-info/
+.eggs/
+
+# Node
+node_modules/
+.next/
+out/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Environment
+.env
+.env.local
+*.env.local
+
+# Cache files
+.beyondtheclub_*.json
+
+# Data (mounted as volume)
+data/
+
+# Logs
+*.log
+nginx/logs/
+
+# SSL certificates (mounted separately)
+nginx/ssl/
+
+# Documentation
+*.md
+docs/
+
+# Tests
+tests/
+__tests__/
+*.test.*
+*.spec.*
+coverage/
+
+# Misc
+.DS_Store
+Thumbs.db
