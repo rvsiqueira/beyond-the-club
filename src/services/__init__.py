@@ -12,6 +12,7 @@ from .availability_service import AvailabilityService, AvailableSlot
 from .booking_service import BookingService
 from .monitor_service import MonitorService
 from .user_auth_service import UserAuthService, AuthTokens, AuthResult
+from .graph_service import GraphService
 
 __all__ = [
     # Base
@@ -24,6 +25,7 @@ __all__ = [
     "AvailabilityService",
     "BookingService",
     "MonitorService",
+    "GraphService",
     # Data classes
     "Member",
     "MemberPreferences",
