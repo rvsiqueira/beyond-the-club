@@ -11,7 +11,8 @@ import logging
 import sys
 from datetime import datetime
 
-from src.bot import BeyondBot, Member, MemberPreferences, SessionPreference, AvailableSlot
+# Use compatibility layer that wraps services
+from src.bot_compat import BeyondBot, Member, MemberPreferences, SessionPreference, AvailableSlot
 from src.config import load_config, SportConfig, SPORT_CONFIGS
 
 
