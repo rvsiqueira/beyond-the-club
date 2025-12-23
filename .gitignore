@@ -8,6 +8,12 @@
 # Members cache
 .beyondtheclub_members.json
 
+# Availability cache
+.beyondtheclub_availability.json
+
+# Local data directory
+data/
+
 # Python
 __pycache__/
 *.py[cod]
