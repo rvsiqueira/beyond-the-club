@@ -8,8 +8,8 @@ WORKDIR /app
 # Copy package files
 COPY web/package.json web/package-lock.json* ./
 
-# Install dependencies
-RUN npm install --omit=dev
+# Install dependencies (including dev for build)
+RUN npm install
 
 # Stage 2: Builder
 FROM node:20-alpine AS builder
