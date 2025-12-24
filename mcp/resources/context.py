@@ -178,3 +178,35 @@ async def get_preferences_resource() -> str:
             }
 
     return json.dumps(result, indent=2, ensure_ascii=False)
+
+
+async def get_auth_resource() -> str:
+    """
+    Get authentication status as JSON resource.
+
+    Returns:
+        JSON string with authentication data for all phones
+    """
+    import time
+    services = get_services()
+
+    tokens = services.beyond_tokens._tokens_cache
+
+    result = {
+        "total_authenticated": len(tokens),
+        "phones": []
+    }
+
+    for phone, token in tokens.items():
+        is_valid = token.expires_at > time.time() + 60
+        expires_in = int(token.expires_at - time.time())
+
+        result["phones"].append({
+            "phone": phone,
+            "valid": is_valid,
+            "expires_in_seconds": max(0, expires_in),
+            "expires_in_minutes": max(0, expires_in // 60),
+            "updated_at": token.updated_at
+        })
+
+    return json.dumps(result, indent=2, ensure_ascii=False)

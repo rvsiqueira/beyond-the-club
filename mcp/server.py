@@ -17,7 +17,7 @@ from mcp.types import (
     ResourceTemplate,
 )
 
-from .tools import booking, availability, members, monitor
+from .tools import booking, availability, members, monitor, auth
 from .resources import context
 
 logger = logging.getLogger(__name__)
@@ -32,6 +32,68 @@ server = Server("beyond-the-club")
 async def list_tools() -> list[Tool]:
     """List all available tools."""
     tools = []
+
+    # Authentication tools (use these first!)
+    tools.extend([
+        Tool(
+            name="check_auth_status",
+            description="Check if a phone number has valid Beyond API authentication. USE THIS FIRST before calling other tools to verify the user can access the system.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "phone": {
+                        "type": "string",
+                        "description": "Phone number to check (e.g., '+5511999999999')"
+                    }
+                },
+                "required": ["phone"]
+            }
+        ),
+        Tool(
+            name="request_beyond_sms",
+            description="Request an SMS verification code for Beyond API authentication. Sends a 6-digit code to the phone number. Save the session_info for verify_beyond_sms.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "phone": {
+                        "type": "string",
+                        "description": "Phone number to send SMS to (e.g., '+5511999999999')"
+                    }
+                },
+                "required": ["phone"]
+            }
+        ),
+        Tool(
+            name="verify_beyond_sms",
+            description="Verify the SMS code and complete Beyond API authentication. After success, the user can use all booking features.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "phone": {
+                        "type": "string",
+                        "description": "Phone number that received the SMS"
+                    },
+                    "code": {
+                        "type": "string",
+                        "description": "6-digit code from SMS"
+                    },
+                    "session_info": {
+                        "type": "string",
+                        "description": "Session info from request_beyond_sms (optional, auto-retrieved)"
+                    }
+                },
+                "required": ["phone", "code"]
+            }
+        ),
+        Tool(
+            name="get_authenticated_phones",
+            description="Get a list of all phones with valid Beyond authentication.",
+            inputSchema={
+                "type": "object",
+                "properties": {}
+            }
+        ),
+    ])
 
     # Availability tools
     tools.extend([
@@ -316,7 +378,17 @@ async def list_tools() -> list[Tool]:
 async def call_tool(name: str, arguments: dict[str, Any]) -> list[TextContent]:
     """Handle tool calls."""
     try:
-        if name == "check_availability":
+        # Authentication tools
+        if name == "check_auth_status":
+            result = await auth.check_auth_status(**arguments)
+        elif name == "request_beyond_sms":
+            result = await auth.request_beyond_sms(**arguments)
+        elif name == "verify_beyond_sms":
+            result = await auth.verify_beyond_sms(**arguments)
+        elif name == "get_authenticated_phones":
+            result = await auth.get_authenticated_phone()
+        # Availability tools
+        elif name == "check_availability":
             result = await availability.check_availability(**arguments)
         elif name == "scan_availability":
             result = await availability.scan_availability(**arguments)
@@ -357,6 +429,12 @@ async def list_resources() -> list[Resource]:
     """List available resources."""
     return [
         Resource(
+            uri="beyond://auth",
+            name="Authentication Status",
+            description="All authenticated phones and their token status",
+            mimeType="application/json"
+        ),
+        Resource(
             uri="beyond://members",
             name="Members",
             description="List of all members with usage status",
@@ -386,7 +464,9 @@ async def list_resources() -> list[Resource]:
 @server.read_resource()
 async def read_resource(uri: str) -> str:
     """Read a resource."""
-    if uri == "beyond://members":
+    if uri == "beyond://auth":
+        return await context.get_auth_resource()
+    elif uri == "beyond://members":
         return await context.get_members_resource()
     elif uri == "beyond://bookings":
         return await context.get_bookings_resource()
