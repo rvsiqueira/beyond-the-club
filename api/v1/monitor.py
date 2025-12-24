@@ -37,9 +37,9 @@ class SessionSearchRequest(BaseModel):
     """Session search request with specific parameters."""
     member_id: int = Field(..., description="Member ID to book for")
     level: str = Field(..., description="Session level (Iniciante1, Iniciante2, Intermediario1, Intermediario2, Avançado1, Avançado2)")
-    wave_side: str = Field(..., description="Wave side (Lado_esquerdo or Lado_direito)")
     target_date: str = Field(..., description="Target date (YYYY-MM-DD)")
     target_hour: str = Field(..., description="Target hour (HH:MM, must be valid for the level)")
+    wave_side: Optional[str] = Field(None, description="Wave side (Lado_esquerdo or Lado_direito) - optional, searches both if not specified")
     auto_book: bool = Field(True, description="Auto-book when slot found")
     duration_minutes: int = Field(120, description="Duration in minutes")
     check_interval_seconds: int = Field(30, description="Check interval in seconds")
@@ -260,9 +260,9 @@ async def start_session_search(
             detail=f"Invalid hour {request.target_hour} for {request.level}. Valid hours: {valid_hours}"
         )
 
-    # Validate wave_side
+    # Validate wave_side if provided
     valid_sides = ["Lado_esquerdo", "Lado_direito"]
-    if request.wave_side not in valid_sides:
+    if request.wave_side and request.wave_side not in valid_sides:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=f"Invalid wave_side: {request.wave_side}. Valid sides: {valid_sides}"
@@ -300,6 +300,8 @@ async def start_session_search(
         "elapsed_seconds": 0
     }
 
+    side_desc = request.wave_side if request.wave_side else "ambos os lados"
+
     return {
         "monitor_id": monitor_id,
         "status": "pending",
@@ -308,7 +310,7 @@ async def start_session_search(
         "member_name": member.social_name,
         "session": {
             "level": request.level,
-            "wave_side": request.wave_side,
+            "wave_side": side_desc,
             "date": request.target_date,
             "hour": request.target_hour
         }

@@ -211,9 +211,9 @@ async def get_session_options() -> str:
 async def search_session(
     member_name: str,
     level: str,
-    wave_side: str,
     target_date: str,
     target_hour: str,
+    wave_side: Optional[str] = None,
     auto_book: bool = True,
     duration_minutes: int = 120,
     sport: str = "surf"
@@ -223,17 +223,17 @@ async def search_session(
 
     Unlike start_auto_monitor which uses member preferences, this function
     allows searching for a specific session:
-    - Specific level (e.g., "Iniciante2")
-    - Specific wave side (e.g., "Lado_esquerdo")
-    - Specific date (e.g., "2025-12-26")
-    - Specific hour (must be valid for the level)
+    - Specific level (e.g., "Iniciante2") - required
+    - Specific date (e.g., "2025-12-26") - required
+    - Specific hour (must be valid for the level) - required
+    - Wave side (optional - searches both sides if not specified)
 
     Args:
         member_name: Name of the member to book for
         level: Session level (Iniciante1, Iniciante2, Intermediario1, Intermediario2, Avançado1, Avançado2)
-        wave_side: Wave side (Lado_esquerdo or Lado_direito)
         target_date: Target date (YYYY-MM-DD format)
         target_hour: Target hour (HH:MM format, must be valid for level)
+        wave_side: Wave side (Lado_esquerdo or Lado_direito) - optional
         auto_book: If True, book immediately when slot found (default: True)
         duration_minutes: How long to run the search (default: 120 min)
         sport: Sport type (default: "surf")
@@ -255,9 +255,9 @@ async def search_session(
     if target_hour not in valid_hours:
         return f"❌ Horário {target_hour} inválido para {level}\n\nHorários válidos para {level}: {', '.join(valid_hours)}"
 
-    # Validate wave_side
+    # Validate wave_side if provided
     valid_sides = ["Lado_esquerdo", "Lado_direito"]
-    if wave_side not in valid_sides:
+    if wave_side and wave_side not in valid_sides:
         return f"❌ Lado inválido: {wave_side}\n\nLados válidos: {', '.join(valid_sides)}"
 
     services = get_services()
@@ -280,13 +280,15 @@ async def search_session(
     _monitor_state["running"] = True
     _monitor_state["messages"] = []
 
+    side_desc = wave_side if wave_side else "ambos os lados"
+
     try:
         result = services.monitor.run_session_search(
             member_id=member.member_id,
             level=level,
-            wave_side=wave_side,
             target_date=target_date,
             target_hour=target_hour,
+            wave_side=wave_side,
             auto_book=auto_book,
             duration_minutes=duration_minutes,
             check_interval_seconds=30,
@@ -296,18 +298,16 @@ async def search_session(
         _monitor_state["results"] = {member.member_id: result}
         _monitor_state["running"] = False
 
-        # Format result
-        combo_key = f"{level}/{wave_side}"
-
         if result.get("success"):
             if result.get("voucher"):
                 slot = result.get("slot", {})
+                slot_combo = f"{slot.get('level')}/{slot.get('wave_side')}"
                 lines = [
                     "✅ Sessão agendada com sucesso!\n",
                     f"👤 Membro: {member.social_name}",
                     f"📅 Data: {slot.get('date')}",
                     f"⏰ Horário: {slot.get('interval')}",
-                    f"🎯 Sessão: {combo_key}",
+                    f"🎯 Sessão: {slot_combo}",
                     f"🎫 Voucher: {result.get('voucher')}",
                     f"🔑 Código de Acesso: {result.get('access_code', 'N/A')}"
                 ]
@@ -327,12 +327,13 @@ async def search_session(
             else:
                 # Slot found but not booked (auto_book=False)
                 slot = result.get("slot", {})
+                slot_combo = f"{slot.get('level')}/{slot.get('wave_side')}"
                 lines = [
                     "✅ Sessão encontrada (não agendada)\n",
                     f"👤 Membro: {member.social_name}",
                     f"📅 Data: {slot.get('date')}",
                     f"⏰ Horário: {slot.get('interval')}",
-                    f"🎯 Sessão: {combo_key}",
+                    f"🎯 Sessão: {slot_combo}",
                     f"📊 Vagas disponíveis: {slot.get('available')}",
                     "\n💡 Use auto_book=True para agendar automaticamente."
                 ]
@@ -344,7 +345,7 @@ async def search_session(
                 f"👤 Membro: {member.social_name}",
                 f"📅 Data buscada: {target_date}",
                 f"⏰ Horário buscado: {target_hour}",
-                f"🎯 Sessão buscada: {combo_key}",
+                f"🎯 Nível buscado: {level} | Lado: {side_desc}",
                 f"\n⚠️ Motivo: {error}"
             ]
             return "\n".join(lines)

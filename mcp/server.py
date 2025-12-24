@@ -379,7 +379,7 @@ async def list_tools() -> list[Tool]:
         ),
         Tool(
             name="search_session",
-            description="Search and book a SPECIFIC session. Unlike start_auto_monitor (which uses member preferences), this allows selecting exact: level, wave side, date, and hour. Each level has fixed valid hours.",
+            description="Search and book a SPECIFIC session. Unlike start_auto_monitor (which uses member preferences), this allows selecting exact: level, date, hour, and optionally wave side. Each level has fixed valid hours.",
             inputSchema={
                 "type": "object",
                 "properties": {
@@ -391,10 +391,6 @@ async def list_tools() -> list[Tool]:
                         "type": "string",
                         "description": "Session level: Iniciante1 (13:00/15:00), Iniciante2 (09:00/17:00), Intermediario1 (10:00/16:00), Intermediario2 (08:00/12:00/18:00), Avançado1 (11:00/14:00), Avançado2 (07:00/19:00)"
                     },
-                    "wave_side": {
-                        "type": "string",
-                        "description": "Wave side: 'Lado_esquerdo' or 'Lado_direito'"
-                    },
                     "target_date": {
                         "type": "string",
                         "description": "Target date (YYYY-MM-DD format)"
@@ -402,6 +398,10 @@ async def list_tools() -> list[Tool]:
                     "target_hour": {
                         "type": "string",
                         "description": "Target hour (HH:MM format). Must be valid for the selected level."
+                    },
+                    "wave_side": {
+                        "type": "string",
+                        "description": "Wave side: 'Lado_esquerdo' or 'Lado_direito' (optional - searches both if not specified)"
                     },
                     "auto_book": {
                         "type": "boolean",
@@ -419,7 +419,7 @@ async def list_tools() -> list[Tool]:
                         "default": "surf"
                     }
                 },
-                "required": ["member_name", "level", "wave_side", "target_date", "target_hour"]
+                "required": ["member_name", "level", "target_date", "target_hour"]
             }
         ),
     ])

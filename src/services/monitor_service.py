@@ -148,12 +148,9 @@ class MonitorService(BaseService):
                         )
 
                         if slot:
-                            # Validate that the slot matches the requested filters
+                            # Validate that the slot matches the requested date filter (if specified)
                             if target_dates and slot.date not in target_dates:
                                 status_update(f"  Slot com data diferente: {slot.date} (esperado: {target_dates})", "warning")
-                                slot = None
-                            elif prefs.target_hours and slot.interval not in prefs.target_hours:
-                                status_update(f"  Slot com horário diferente: {slot.interval} (esperado: {prefs.target_hours})", "warning")
                                 slot = None
 
                         if slot:
@@ -303,9 +300,9 @@ class MonitorService(BaseService):
         self,
         member_id: int,
         level: str,
-        wave_side: str,
         target_date: str,
         target_hour: str,
+        wave_side: Optional[str] = None,
         auto_book: bool = True,
         duration_minutes: int = 120,
         check_interval_seconds: int = 30,
@@ -316,17 +313,17 @@ class MonitorService(BaseService):
 
         Unlike run_auto_monitor which uses member preferences, this method
         allows the user to specify exactly which session they want:
-        - Specific level (e.g., "Iniciante2")
-        - Specific wave side (e.g., "Lado_esquerdo")
-        - Specific date (e.g., "2025-12-26")
-        - Specific hour (must be valid for the level)
+        - Specific level (e.g., "Iniciante2") - required
+        - Specific date (e.g., "2025-12-26") - required
+        - Specific hour (must be valid for the level) - required
+        - Wave side (optional - if not specified, searches both sides)
 
         Args:
             member_id: Member ID to book for
             level: Session level (Iniciante1, Iniciante2, etc.)
-            wave_side: Wave side (Lado_esquerdo or Lado_direito)
             target_date: Target date (YYYY-MM-DD format)
             target_hour: Target hour (HH:MM format, must be valid for level)
+            wave_side: Wave side (Lado_esquerdo or Lado_direito) - optional
             auto_book: If True, book immediately when slot found
             duration_minutes: How long to run the monitor (default: 120 min)
             check_interval_seconds: How often to check (default: 30 sec)
@@ -361,12 +358,15 @@ class MonitorService(BaseService):
             status_update(error_msg, "error")
             return {"success": False, "error": error_msg}
 
-        # Validate wave_side
+        # Validate wave_side if provided
         valid_sides = ["Lado_esquerdo", "Lado_direito"]
-        if wave_side not in valid_sides:
+        if wave_side and wave_side not in valid_sides:
             error_msg = f"Lado inválido: {wave_side}. Lados válidos: {valid_sides}"
             status_update(error_msg, "error")
             return {"success": False, "error": error_msg}
+
+        # Determine which sides to search
+        sides_to_search = [wave_side] if wave_side else valid_sides
 
         # Validate member
         member = self._member_service.get_member_by_id(member_id)
@@ -375,9 +375,9 @@ class MonitorService(BaseService):
             status_update(error_msg, "error")
             return {"success": False, "error": error_msg}
 
-        combo_key = f"{level}/{wave_side}"
+        side_desc = wave_side if wave_side else "ambos os lados"
         status_update(f"Busca de sessão iniciada para {member.social_name}")
-        status_update(f"Sessão: {combo_key} | Data: {target_date} | Horário: {target_hour}")
+        status_update(f"Sessão: {level} | Lado: {side_desc} | Data: {target_date} | Horário: {target_hour}")
 
         start_time = time.time()
         end_time = start_time + (duration_minutes * 60)
@@ -391,75 +391,85 @@ class MonitorService(BaseService):
 
             status_update(f"\n=== Check #{check_count} | {elapsed}s decorridos | {remaining} min restantes ===")
 
-            try:
-                # Search for the specific slot
-                slot = self._availability_service.find_slot_for_combo(
-                    level=level,
-                    wave_side=wave_side,
-                    member_id=member_id,
-                    target_dates=[target_date],
-                    target_hours=[target_hour]
-                )
+            slot_found = None
 
-                if slot:
-                    # Validate that the slot matches the exact date and hour requested
-                    if slot.date != target_date:
-                        status_update(f"Slot retornado com data diferente: {slot.date} (esperado: {target_date})", "warning")
-                        slot = None
-                    elif slot.interval != target_hour:
-                        status_update(f"Slot retornado com horário diferente: {slot.interval} (esperado: {target_hour})", "warning")
-                        slot = None
+            # Search in each side (one or both)
+            for side in sides_to_search:
+                combo_key = f"{level}/{side}"
 
-                if slot:
-                    status_update(f"Slot encontrado! {slot.date} {slot.interval} ({slot.combo_key})")
+                try:
+                    # Search for the specific slot
+                    slot = self._availability_service.find_slot_for_combo(
+                        level=level,
+                        wave_side=side,
+                        member_id=member_id,
+                        target_dates=[target_date],
+                        target_hours=[target_hour]
+                    )
 
-                    if auto_book:
-                        try:
-                            result = self._booking_service.create_booking(slot, member_id)
-                            voucher = result.get("voucherCode", "N/A")
-                            access = result.get("accessCode", result.get("invitation", {}).get("accessCode", "N/A"))
+                    if slot:
+                        # Validate that the slot matches the exact date and hour requested
+                        if slot.date != target_date:
+                            status_update(f"  {combo_key}: data diferente ({slot.date})", "warning")
+                            slot = None
+                        elif slot.interval != target_hour:
+                            status_update(f"  {combo_key}: horário diferente ({slot.interval})", "warning")
+                            slot = None
 
-                            status_update(f"AGENDADO! Voucher: {voucher} | Access: {access}")
-
-                            self._running = False
-                            return {
-                                "success": True,
-                                "voucher": voucher,
-                                "access_code": access,
-                                "slot": slot.to_dict(),
-                                "member_name": member.social_name,
-                                "member_id": member_id
-                            }
-
-                        except Exception as e:
-                            error_msg = str(e)
-                            if "ja possui" in error_msg.lower() or "already" in error_msg.lower():
-                                status_update("Membro já possui agendamento ativo", "warning")
-                                self._running = False
-                                return {
-                                    "success": False,
-                                    "error": "Membro já possui agendamento ativo",
-                                    "member_name": member.social_name
-                                }
-                            else:
-                                status_update(f"Erro ao agendar: {e}", "error")
-                                # Continue searching
+                    if slot:
+                        slot_found = slot
+                        break  # Found a valid slot, stop searching sides
                     else:
-                        # Slot found but auto_book is disabled
-                        status_update("Slot encontrado (auto_book desabilitado)")
+                        status_update(f"  {combo_key}: não disponível")
+
+                except Exception as e:
+                    status_update(f"  Erro ao buscar {combo_key}: {e}", "error")
+
+            if slot_found:
+                status_update(f"Slot encontrado! {slot_found.date} {slot_found.interval} ({slot_found.combo_key})")
+
+                if auto_book:
+                    try:
+                        result = self._booking_service.create_booking(slot_found, member_id)
+                        voucher = result.get("voucherCode", "N/A")
+                        access = result.get("accessCode", result.get("invitation", {}).get("accessCode", "N/A"))
+
+                        status_update(f"AGENDADO! Voucher: {voucher} | Access: {access}")
+
                         self._running = False
                         return {
                             "success": True,
-                            "booked": False,
-                            "slot": slot.to_dict(),
+                            "voucher": voucher,
+                            "access_code": access,
+                            "slot": slot_found.to_dict(),
                             "member_name": member.social_name,
                             "member_id": member_id
                         }
-                if not slot:
-                    status_update(f"Sessão não disponível: {combo_key} | {target_date} | {target_hour}")
 
-            except Exception as e:
-                status_update(f"Erro ao buscar slot: {e}", "error")
+                    except Exception as e:
+                        error_msg = str(e)
+                        if "ja possui" in error_msg.lower() or "already" in error_msg.lower():
+                            status_update("Membro já possui agendamento ativo", "warning")
+                            self._running = False
+                            return {
+                                "success": False,
+                                "error": "Membro já possui agendamento ativo",
+                                "member_name": member.social_name
+                            }
+                        else:
+                            status_update(f"Erro ao agendar: {e}", "error")
+                            # Continue searching
+                else:
+                    # Slot found but auto_book is disabled
+                    status_update("Slot encontrado (auto_book desabilitado)")
+                    self._running = False
+                    return {
+                        "success": True,
+                        "booked": False,
+                        "slot": slot_found.to_dict(),
+                        "member_name": member.social_name,
+                        "member_id": member_id
+                    }
 
             # Wait before next check
             if time.time() < end_time and self._running:
@@ -473,7 +483,7 @@ class MonitorService(BaseService):
         if not self._running:
             status_update("Busca interrompida pelo usuário.")
         else:
-            status_update(f"Tempo esgotado. Sessão não encontrada: {combo_key} em {target_date} às {target_hour}")
+            status_update(f"Tempo esgotado. Sessão não encontrada: {level} | {side_desc} | {target_date} | {target_hour}")
 
         self._running = False
         return {
