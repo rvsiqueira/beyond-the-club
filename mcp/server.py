@@ -146,6 +146,29 @@ async def list_tools() -> list[Tool]:
                 }
             }
         ),
+        Tool(
+            name="swap_booking",
+            description="Swap a booking to a different member. Cancels the original and creates a new booking for the new member.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "voucher_code": {
+                        "type": "string",
+                        "description": "Current booking voucher code"
+                    },
+                    "new_member_name": {
+                        "type": "string",
+                        "description": "Name of the new member to transfer the booking to"
+                    },
+                    "sport": {
+                        "type": "string",
+                        "description": "Sport type: 'surf' or 'tennis'",
+                        "default": "surf"
+                    }
+                },
+                "required": ["voucher_code", "new_member_name"]
+            }
+        ),
     ])
 
     # Member tools
@@ -167,6 +190,66 @@ async def list_tools() -> list[Tool]:
         Tool(
             name="get_member_preferences",
             description="Get a specific member's session preferences.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "member_name": {
+                        "type": "string",
+                        "description": "Member's name"
+                    },
+                    "sport": {
+                        "type": "string",
+                        "description": "Sport context: 'surf' or 'tennis'",
+                        "default": "surf"
+                    }
+                },
+                "required": ["member_name"]
+            }
+        ),
+        Tool(
+            name="set_member_preferences",
+            description="Set session preferences for a member. Use this to add or update preferred levels, wave sides, hours, and dates.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "member_name": {
+                        "type": "string",
+                        "description": "Member's name"
+                    },
+                    "sessions": {
+                        "type": "array",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "level": {"type": "string", "description": "Level (e.g., 'Avançado2', 'Intermediario1')"},
+                                "wave_side": {"type": "string", "description": "Wave side (e.g., 'Lado_direito', 'Lado_esquerdo')"},
+                                "court": {"type": "string", "description": "Court (for tennis)"}
+                            }
+                        },
+                        "description": "List of session preferences. Example: [{\"level\": \"Avançado2\", \"wave_side\": \"Lado_direito\"}]"
+                    },
+                    "target_hours": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "Preferred hours (e.g., ['08:00', '09:00'])"
+                    },
+                    "target_dates": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "Target dates (YYYY-MM-DD format)"
+                    },
+                    "sport": {
+                        "type": "string",
+                        "description": "Sport context: 'surf' or 'tennis'",
+                        "default": "surf"
+                    }
+                },
+                "required": ["member_name", "sessions"]
+            }
+        ),
+        Tool(
+            name="delete_member_preferences",
+            description="Delete all preferences for a member.",
             inputSchema={
                 "type": "object",
                 "properties": {
@@ -243,10 +326,16 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> list[TextContent]:
             result = await booking.cancel_booking(**arguments)
         elif name == "list_bookings":
             result = await booking.list_bookings(**arguments)
+        elif name == "swap_booking":
+            result = await booking.swap_booking(**arguments)
         elif name == "get_members":
             result = await members.get_members(**arguments)
         elif name == "get_member_preferences":
             result = await members.get_member_preferences(**arguments)
+        elif name == "set_member_preferences":
+            result = await members.set_member_preferences(**arguments)
+        elif name == "delete_member_preferences":
+            result = await members.delete_member_preferences(**arguments)
         elif name == "start_auto_monitor":
             result = await monitor.start_auto_monitor(**arguments)
         elif name == "check_monitor_status":

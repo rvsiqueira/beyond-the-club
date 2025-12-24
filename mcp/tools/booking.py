@@ -140,6 +140,116 @@ async def cancel_booking(voucher_code: str) -> str:
         return f"❌ Erro ao cancelar reserva: {str(e)}"
 
 
+async def swap_booking(
+    voucher_code: str,
+    new_member_name: str,
+    sport: str = "surf"
+) -> str:
+    """
+    Swap a booking to a different member.
+
+    Args:
+        voucher_code: Current booking voucher code
+        new_member_name: Name of the new member to transfer to
+        sport: Sport type
+
+    Returns:
+        Swap result as formatted string
+    """
+    services = get_services()
+    services.context.set_sport(sport)
+
+    # Ensure API is initialized
+    if not services.context.api:
+        services.auth.initialize(use_cached=True)
+
+    # Find new member
+    new_member = services.members.get_member_by_name(new_member_name)
+    if not new_member:
+        return f"❌ Membro '{new_member_name}' não encontrado. Use get_members para ver a lista."
+
+    # Check if new member already has booking
+    if services.bookings.has_active_booking(new_member.member_id):
+        return f"❌ {new_member.social_name} já possui um agendamento ativo."
+
+    # Get original booking details
+    bookings = services.bookings.list_bookings()
+    original = None
+    for b in bookings:
+        if b.get("voucherCode") == voucher_code:
+            original = b
+            break
+
+    if not original:
+        return f"❌ Reserva {voucher_code} não encontrada."
+
+    # Extract slot info
+    invitation = original.get("invitation", {})
+    tags = original.get("tags", []) or invitation.get("tags", [])
+
+    level = wave_side = None
+    for tag in tags:
+        if "Iniciante" in tag or "Intermediario" in tag or "Avançado" in tag or "Avancado" in tag:
+            level = tag
+        elif "Lado_" in tag:
+            wave_side = tag
+
+    date = invitation.get("date", "").split("T")[0]
+    begin = invitation.get("begin", "")
+    interval = begin[:5] if len(str(begin)) >= 5 else begin or invitation.get("interval", "")
+
+    # Find matching slot from cache
+    if not services.availability.is_cache_valid():
+        services.availability.scan_availability()
+
+    slots = services.availability.get_slots_from_cache()
+    matching_slot = None
+    for s in slots:
+        if s.date == date and s.interval == interval and s.level == level and s.wave_side == wave_side:
+            matching_slot = s
+            break
+
+    if not matching_slot:
+        return f"❌ Não foi possível encontrar o slot correspondente para swap."
+
+    try:
+        result = services.bookings.swap_booking(
+            voucher_code=voucher_code,
+            new_member_id=new_member.member_id,
+            slot=matching_slot
+        )
+
+        new_voucher = result.get("voucherCode", "N/A")
+        new_access = result.get("accessCode", result.get("invitation", {}).get("accessCode", "N/A"))
+
+        # Update graph
+        services.graph.cancel_booking(voucher_code)
+        services.graph.sync_booking(
+            voucher=new_voucher,
+            access_code=new_access,
+            member_id=new_member.member_id,
+            date=date,
+            interval=interval,
+            level=level,
+            wave_side=wave_side
+        )
+
+        old_member_name = original.get("member", {}).get("socialName", "N/A")
+
+        return f"""✅ Swap realizado com sucesso!
+
+📋 Detalhes:
+• De: {old_member_name}
+• Para: {new_member.social_name}
+• Data: {date} às {interval}
+• Sessão: {level}/{wave_side}
+• Novo Voucher: {new_voucher}
+• Código de acesso: {new_access}"""
+
+    except Exception as e:
+        return f"❌ Erro ao fazer swap: {str(e)}"
+
+
 async def list_bookings(
     member_name: Optional[str] = None,
     sport: str = "surf"
