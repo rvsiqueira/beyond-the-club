@@ -148,6 +148,9 @@ async def swap_booking(
     """
     Swap a booking to a different member.
 
+    Captures all details from the original booking, cancels it,
+    and creates a new booking for the new member with the same details.
+
     Args:
         voucher_code: Current booking voucher code
         new_member_name: Name of the new member to transfer to
@@ -156,6 +159,9 @@ async def swap_booking(
     Returns:
         Swap result as formatted string
     """
+    from src.services import AvailableSlot
+    from src.packages import get_package_ids
+
     services = get_services()
     services.context.set_sport(sport)
 
@@ -172,7 +178,7 @@ async def swap_booking(
     if services.bookings.has_active_booking(new_member.member_id):
         return f"❌ {new_member.social_name} já possui um agendamento ativo."
 
-    # Get original booking details
+    # === STEP 1: Get original booking details ===
     bookings = services.bookings.list_bookings()
     original = None
     for b in bookings:
@@ -183,40 +189,66 @@ async def swap_booking(
     if not original:
         return f"❌ Reserva {voucher_code} não encontrada."
 
-    # Extract slot info
-    invitation = original.get("invitation", {})
-    tags = original.get("tags", []) or invitation.get("tags", [])
+    # Extract all booking details
+    old_member_info = original.get("member", {})
+    old_member_name = old_member_info.get("socialName", "N/A")
+    old_member_id = old_member_info.get("memberId")
 
-    level = wave_side = None
+    invitation = original.get("invitation", {})
+
+    # Get tags from booking root first, then fallback to invitation
+    tags = original.get("tags", [])
+    if not tags:
+        tags = invitation.get("tags", [])
+
+    # Extract level and wave_side from tags
+    level = None
+    wave_side = None
     for tag in tags:
         if "Iniciante" in tag or "Intermediario" in tag or "Avançado" in tag or "Avancado" in tag:
             level = tag
         elif "Lado_" in tag:
             wave_side = tag
 
+    # Extract date
     date = invitation.get("date", "").split("T")[0]
+
+    # Extract interval from begin field (most reliable)
     begin = invitation.get("begin", "")
-    interval = begin[:5] if len(str(begin)) >= 5 else begin or invitation.get("interval", "")
+    interval = begin[:5] if len(str(begin)) >= 5 else begin
+    if not interval:
+        interval = invitation.get("interval", "")
 
-    # Find matching slot from cache
-    if not services.availability.is_cache_valid():
-        services.availability.scan_availability()
+    # Validate we have all required details
+    if not level or not wave_side:
+        return f"❌ Não foi possível extrair level/wave_side da reserva. Tags: {tags}"
 
-    slots = services.availability.get_slots_from_cache()
-    matching_slot = None
-    for s in slots:
-        if s.date == date and s.interval == interval and s.level == level and s.wave_side == wave_side:
-            matching_slot = s
-            break
+    if not date or not interval:
+        return f"❌ Não foi possível extrair data/horário da reserva."
 
-    if not matching_slot:
-        return f"❌ Não foi possível encontrar o slot correspondente para swap."
+    # === STEP 2: Get package IDs directly (no cache dependency) ===
+    pkg_info = get_package_ids(level, wave_side, sport)
+    if not pkg_info:
+        return f"❌ Pacote não encontrado para {level}/{wave_side}."
 
+    # === STEP 3: Create slot with all details ===
+    slot = AvailableSlot(
+        date=date,
+        interval=interval,
+        level=level,
+        wave_side=wave_side,
+        available=1,  # Slot will be available after cancel
+        max_quantity=6,
+        package_id=pkg_info.package_id,
+        product_id=pkg_info.product_id
+    )
+
+    # === STEP 4: Execute swap (cancel + create) ===
     try:
         result = services.bookings.swap_booking(
             voucher_code=voucher_code,
             new_member_id=new_member.member_id,
-            slot=matching_slot
+            slot=slot
         )
 
         new_voucher = result.get("voucherCode", "N/A")
@@ -234,13 +266,17 @@ async def swap_booking(
             wave_side=wave_side
         )
 
-        old_member_name = original.get("member", {}).get("socialName", "N/A")
+        # Refresh members cache
+        services.members.refresh_members()
 
         return f"""✅ Swap realizado com sucesso!
 
-📋 Detalhes:
-• De: {old_member_name}
-• Para: {new_member.social_name}
+📋 Reserva Original:
+• Membro: {old_member_name}
+• Voucher: {voucher_code}
+
+📋 Nova Reserva:
+• Membro: {new_member.social_name}
 • Data: {date} às {interval}
 • Sessão: {level}/{wave_side}
 • Novo Voucher: {new_voucher}
