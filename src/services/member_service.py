@@ -16,6 +16,7 @@ from .base import BaseService, ServiceContext
 logger = logging.getLogger(__name__)
 
 MEMBERS_CACHE_FILE = Path(__file__).parent.parent.parent / ".beyondtheclub_members.json"
+PREFERENCES_CACHE_FILE = Path(__file__).parent.parent.parent / ".beyondtheclub_preferences.json"
 
 
 @dataclass
@@ -89,54 +90,116 @@ class MemberService(BaseService):
 
     def __init__(self, context: ServiceContext):
         super().__init__(context)
-        self._cache: Dict[str, Any] = {}
-        self._cache_loaded = False
+        self._members_cache: Dict[str, Any] = {}
+        self._prefs_cache: Dict[str, Any] = {}
+        self._members_loaded = False
+        self._prefs_loaded = False
 
-    def _load_cache(self) -> Dict[str, Any]:
+    def _load_members_cache(self) -> Dict[str, Any]:
         """Load members cache from file."""
-        if self._cache_loaded:
-            return self._cache
+        if self._members_loaded:
+            return self._members_cache
 
         try:
             if not MEMBERS_CACHE_FILE.exists():
-                self._cache = {"members": [], "preferences": {}, "last_updated": None}
+                self._members_cache = {"members": [], "last_updated": None}
             else:
-                self._cache = json.loads(MEMBERS_CACHE_FILE.read_text())
-            self._cache_loaded = True
-            self._migrate_preferences_if_needed()
-            return self._cache
+                self._members_cache = json.loads(MEMBERS_CACHE_FILE.read_text())
+                # Migrate old format: move preferences to separate file
+                if "preferences" in self._members_cache:
+                    self._migrate_preferences_to_separate_file()
+            self._members_loaded = True
+            return self._members_cache
         except Exception as e:
             logger.warning(f"Could not load members cache: {e}")
-            self._cache = {"members": [], "preferences": {}, "last_updated": None}
-            self._cache_loaded = True
-            return self._cache
+            self._members_cache = {"members": [], "last_updated": None}
+            self._members_loaded = True
+            return self._members_cache
 
-    def _save_cache(self):
+    def _load_prefs_cache(self) -> Dict[str, Any]:
+        """Load preferences cache from file."""
+        if self._prefs_loaded:
+            return self._prefs_cache
+
+        try:
+            if not PREFERENCES_CACHE_FILE.exists():
+                self._prefs_cache = {"preferences": {}, "last_updated": None}
+            else:
+                self._prefs_cache = json.loads(PREFERENCES_CACHE_FILE.read_text())
+            self._prefs_loaded = True
+            self._migrate_preferences_if_needed()
+            return self._prefs_cache
+        except Exception as e:
+            logger.warning(f"Could not load preferences cache: {e}")
+            self._prefs_cache = {"preferences": {}, "last_updated": None}
+            self._prefs_loaded = True
+            return self._prefs_cache
+
+    def _migrate_preferences_to_separate_file(self):
+        """Migrate preferences from old members cache to separate file."""
+        if "preferences" not in self._members_cache:
+            return
+
+        # Load or create preferences cache
+        if PREFERENCES_CACHE_FILE.exists():
+            try:
+                existing_prefs = json.loads(PREFERENCES_CACHE_FILE.read_text())
+            except Exception:
+                existing_prefs = {"preferences": {}, "last_updated": None}
+        else:
+            existing_prefs = {"preferences": {}, "last_updated": None}
+
+        # Merge preferences (don't overwrite existing)
+        for member_id, prefs in self._members_cache["preferences"].items():
+            if member_id not in existing_prefs["preferences"]:
+                existing_prefs["preferences"][member_id] = prefs
+
+        # Save to separate file
+        existing_prefs["last_updated"] = datetime.now().isoformat()
+        PREFERENCES_CACHE_FILE.write_text(json.dumps(existing_prefs, indent=2))
+        logger.info("Migrated preferences to separate cache file")
+
+        # Remove preferences from members cache and save
+        del self._members_cache["preferences"]
+        self._members_cache["last_updated"] = datetime.now().isoformat()
+        MEMBERS_CACHE_FILE.write_text(json.dumps(self._members_cache, indent=2))
+        logger.info("Removed preferences from members cache")
+
+    def _save_members_cache(self):
         """Save members cache to file."""
         try:
-            self._cache["last_updated"] = datetime.now().isoformat()
-            MEMBERS_CACHE_FILE.write_text(json.dumps(self._cache, indent=2))
+            self._members_cache["last_updated"] = datetime.now().isoformat()
+            MEMBERS_CACHE_FILE.write_text(json.dumps(self._members_cache, indent=2))
             logger.debug("Members cache saved")
         except Exception as e:
             logger.warning(f"Could not save members cache: {e}")
 
+    def _save_prefs_cache(self):
+        """Save preferences cache to file."""
+        try:
+            self._prefs_cache["last_updated"] = datetime.now().isoformat()
+            PREFERENCES_CACHE_FILE.write_text(json.dumps(self._prefs_cache, indent=2))
+            logger.debug("Preferences cache saved")
+        except Exception as e:
+            logger.warning(f"Could not save preferences cache: {e}")
+
     def _migrate_preferences_if_needed(self):
         """Migrate old flat preferences to per-sport format."""
-        if not self._cache.get("preferences"):
+        if not self._prefs_cache.get("preferences"):
             return
 
         migrated = False
-        for member_id, prefs in self._cache["preferences"].items():
+        for member_id, prefs in self._prefs_cache["preferences"].items():
             # Check if already in new format (has sport keys)
             if isinstance(prefs, dict) and "sessions" in prefs:
                 # Old format: {sessions: [...], target_hours: [...], target_dates: [...]}
                 # Migrate to: {surf: {sessions: [...], ...}}
-                self._cache["preferences"][member_id] = {"surf": prefs}
+                self._prefs_cache["preferences"][member_id] = {"surf": prefs}
                 migrated = True
                 logger.info(f"Migrated preferences for member {member_id} to multi-sport format")
 
         if migrated:
-            self._save_cache()
+            self._save_prefs_cache()
 
     def refresh_members(self) -> List[Member]:
         """Fetch members from API and update cache."""
@@ -158,24 +221,24 @@ class MemberService(BaseService):
             )
             members.append(member)
 
-        # Update cache with new members list
-        self._load_cache()
-        self._cache["members"] = [asdict(m) for m in members]
-        self._save_cache()
+        # Update members cache only (preferences are separate)
+        self._load_members_cache()
+        self._members_cache["members"] = [asdict(m) for m in members]
+        self._save_members_cache()
 
         logger.info(f"Refreshed {len(members)} members from API")
         return members
 
     def get_members(self, force_refresh: bool = False) -> List[Member]:
         """Get members list (from cache or API)."""
-        self._load_cache()
+        self._load_members_cache()
 
-        if force_refresh or not self._cache.get("members"):
+        if force_refresh or not self._members_cache.get("members"):
             return self.refresh_members()
 
         # Return cached members
         members = []
-        for m in self._cache.get("members", []):
+        for m in self._members_cache.get("members", []):
             members.append(Member(
                 member_id=m["member_id"],
                 name=m["name"],
@@ -209,10 +272,10 @@ class MemberService(BaseService):
         sport: Optional[str] = None
     ) -> Optional[MemberPreferences]:
         """Get preferences for a specific member and sport."""
-        self._load_cache()
+        self._load_prefs_cache()
 
         sport = sport or self.current_sport
-        member_prefs = self._cache.get("preferences", {}).get(str(member_id))
+        member_prefs = self._prefs_cache.get("preferences", {}).get(str(member_id))
 
         if not member_prefs:
             return None
@@ -255,51 +318,51 @@ class MemberService(BaseService):
         sport: Optional[str] = None
     ):
         """Set preferences for a specific member and sport."""
-        self._load_cache()
+        self._load_prefs_cache()
 
         sport = sport or self.current_sport
 
-        if "preferences" not in self._cache:
-            self._cache["preferences"] = {}
+        if "preferences" not in self._prefs_cache:
+            self._prefs_cache["preferences"] = {}
 
         member_id_str = str(member_id)
-        if member_id_str not in self._cache["preferences"]:
-            self._cache["preferences"][member_id_str] = {}
+        if member_id_str not in self._prefs_cache["preferences"]:
+            self._prefs_cache["preferences"][member_id_str] = {}
 
         # Ensure it's in new format
-        if "sessions" in self._cache["preferences"][member_id_str]:
+        if "sessions" in self._prefs_cache["preferences"][member_id_str]:
             # Migrate old format
-            old_prefs = self._cache["preferences"][member_id_str]
-            self._cache["preferences"][member_id_str] = {"surf": old_prefs}
+            old_prefs = self._prefs_cache["preferences"][member_id_str]
+            self._prefs_cache["preferences"][member_id_str] = {"surf": old_prefs}
 
-        self._cache["preferences"][member_id_str][sport] = {
+        self._prefs_cache["preferences"][member_id_str][sport] = {
             "sessions": [{"attributes": s.attributes} for s in preferences.sessions],
             "target_hours": preferences.target_hours,
             "target_dates": preferences.target_dates
         }
-        self._save_cache()
+        self._save_prefs_cache()
         logger.info(f"Saved {sport} preferences for member {member_id}")
 
     def clear_member_preferences(self, member_id: int, sport: Optional[str] = None):
         """Clear preferences for a specific member and sport."""
-        self._load_cache()
+        self._load_prefs_cache()
 
         sport = sport or self.current_sport
         member_id_str = str(member_id)
 
-        if "preferences" in self._cache and member_id_str in self._cache["preferences"]:
-            member_prefs = self._cache["preferences"][member_id_str]
+        if "preferences" in self._prefs_cache and member_id_str in self._prefs_cache["preferences"]:
+            member_prefs = self._prefs_cache["preferences"][member_id_str]
 
             if isinstance(member_prefs, dict) and sport in member_prefs:
                 del member_prefs[sport]
                 # Clean up if no sports left
                 if not member_prefs:
-                    del self._cache["preferences"][member_id_str]
+                    del self._prefs_cache["preferences"][member_id_str]
             elif "sessions" in member_prefs and sport == "surf":
                 # Old format, remove entirely for surf
-                del self._cache["preferences"][member_id_str]
+                del self._prefs_cache["preferences"][member_id_str]
 
-            self._save_cache()
+            self._save_prefs_cache()
             logger.info(f"Cleared {sport} preferences for member {member_id}")
 
     def has_member_preferences(self, member_id: int, sport: Optional[str] = None) -> bool:
@@ -309,9 +372,9 @@ class MemberService(BaseService):
 
     def get_member_sports_with_preferences(self, member_id: int) -> List[str]:
         """Get list of sports for which a member has preferences."""
-        self._load_cache()
+        self._load_prefs_cache()
 
-        member_prefs = self._cache.get("preferences", {}).get(str(member_id), {})
+        member_prefs = self._prefs_cache.get("preferences", {}).get(str(member_id), {})
 
         if not member_prefs:
             return []

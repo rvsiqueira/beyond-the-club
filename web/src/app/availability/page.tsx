@@ -48,6 +48,9 @@ function AvailabilityContent() {
   const searchParams = useSearchParams();
   const initialDate = searchParams.get('date');
   const initialLevel = searchParams.get('level');
+  const initialInterval = searchParams.get('interval');
+  const initialWaveSide = searchParams.get('wave_side');
+  const shouldOpenModal = searchParams.get('open_modal') === 'true';
 
   const [levelFilter, setLevelFilter] = useState(initialLevel || '');
   const [waveSideFilter, setWaveSideFilter] = useState('');
@@ -55,6 +58,7 @@ function AvailabilityContent() {
   const [refreshCooldown, setRefreshCooldown] = useState(0);
   const [lastRefreshTime, setLastRefreshTime] = useState<number | null>(null);
   const [initialFiltersApplied, setInitialFiltersApplied] = useState(false);
+  const [modalAutoOpened, setModalAutoOpened] = useState(false);
 
   // Batch booking modal state
   const [selectedSlot, setSelectedSlot] = useState<AvailableSlot | null>(null);
@@ -72,6 +76,24 @@ function AvailabilityContent() {
     queryClient.invalidateQueries({ queryKey: ['members'] });
     queryClient.invalidateQueries({ queryKey: ['bookings'] });
   };
+
+  // Auto-open modal if coming from dashboard with specific slot params
+  useEffect(() => {
+    if (shouldOpenModal && !modalAutoOpened && data?.slots && initialDate && initialInterval && initialLevel && initialWaveSide) {
+      const matchingSlot = data.slots.find(
+        (s: AvailableSlot) => s.date === initialDate &&
+             s.interval === initialInterval &&
+             s.level === initialLevel &&
+             s.wave_side === initialWaveSide &&
+             s.available > 0
+      );
+      if (matchingSlot) {
+        setSelectedSlot(matchingSlot);
+        setShowBookingModal(true);
+        setModalAutoOpened(true);
+      }
+    }
+  }, [shouldOpenModal, modalAutoOpened, data?.slots, initialDate, initialInterval, initialLevel, initialWaveSide]);
 
   // Cooldown timer for refresh button
   useEffect(() => {

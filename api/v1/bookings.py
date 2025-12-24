@@ -206,6 +206,9 @@ async def create_booking(
         court=request.court
     )
 
+    # Force refresh members cache to update usage counts
+    services.members.refresh_members()
+
     return BookingResponse(
         voucher_code=voucher,
         access_code=access,
@@ -304,6 +307,9 @@ async def cancel_booking(
 
     # Update graph
     services.graph.cancel_booking(voucher_code)
+
+    # Force refresh members cache to update usage counts
+    services.members.refresh_members()
 
     return {"success": True, "voucher_code": voucher_code, "result": result}
 
@@ -418,6 +424,9 @@ async def swap_booking(
         level=level,
         wave_side=wave_side
     )
+
+    # Force refresh members cache to update usage counts
+    services.members.refresh_members()
 
     return {
         "success": True,

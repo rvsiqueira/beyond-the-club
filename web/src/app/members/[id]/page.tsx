@@ -6,6 +6,8 @@ import { ArrowLeft, Trash2, Plus, GraduationCap, Waves, ArrowUp, ArrowDown, Chec
 import { MainLayout } from '@/components/layout';
 import { Card, CardContent, CardHeader, CardTitle, Button } from '@/components/ui';
 import { useMember, useMemberPreferences, useUpdatePreferences, useDeletePreferences, useBookings } from '@/hooks';
+import { BookingActionModal } from '@/components/BookingActionModal';
+import { useQueryClient } from '@tanstack/react-query';
 import { useAuthStore } from '@/lib/store';
 import { formatDate } from '@/lib/utils';
 
@@ -64,10 +66,12 @@ export default function MemberDetailPage() {
   const { data: bookingsData } = useBookings();
   const updateMutation = useUpdatePreferences(memberId);
   const deleteMutation = useDeletePreferences(memberId);
+  const queryClient = useQueryClient();
 
   // Find the member's next booking
   const memberBooking = bookingsData?.bookings.find(b => b.member_id === memberId);
   const [copiedCode, setCopiedCode] = useState<string | null>(null);
+  const [showBookingModal, setShowBookingModal] = useState(false);
 
   const copyToClipboard = (text: string, codeId: string) => {
     navigator.clipboard.writeText(text);
@@ -279,92 +283,99 @@ export default function MemberDetailPage() {
             </div>
           </div>
 
-          {/* Next Booking Card */}
+          {/* Next Booking Section */}
           {memberBooking && (
-            <div className="relative rounded-2xl overflow-hidden shadow-lg">
-              {/* Background Image */}
-              <div
-                className="absolute inset-0 bg-cover bg-center"
-                style={{ backgroundImage: `url(${getWaveBackground(memberBooking.level)})` }}
-              />
-              {/* Gradient Overlay */}
-              <div className="absolute inset-0 bg-gradient-to-t from-black/90 via-black/50 to-black/30" />
+            <div>
+              <h3 className="text-lg font-semibold text-gray-800 mb-4">Próximo Agendamento</h3>
+              <div className="relative rounded-2xl overflow-hidden shadow-lg w-full md:w-[35%]">
+                {/* Background Image */}
+                <div
+                  className="absolute inset-0 bg-cover bg-center"
+                  style={{ backgroundImage: `url(${getWaveBackground(memberBooking.level)})` }}
+                />
+                {/* Gradient Overlay */}
+                <div className="absolute inset-0 bg-gradient-to-t from-black/90 via-black/50 to-black/30" />
 
-              {/* Content */}
-              <div className="relative p-5 min-h-[180px] flex flex-col justify-between">
-                {/* Top Row */}
-                <div className="flex items-start justify-between">
-                  {/* Days Badge */}
-                  <span className="px-3 py-1.5 bg-white/95 backdrop-blur-sm rounded-full text-xs font-bold text-gray-800 shadow-sm">
-                    {getDaysLabel(memberBooking.date)}
-                  </span>
+                {/* Content */}
+                <div className="relative p-5 min-h-[220px] flex flex-col justify-between">
+                  {/* Top Row */}
+                  <div className="flex items-start justify-between">
+                    {/* Days Badge */}
+                    <span className="px-3 py-1.5 bg-white/95 backdrop-blur-sm rounded-full text-xs font-bold text-gray-800 shadow-sm">
+                      {getDaysLabel(memberBooking.date)}
+                    </span>
 
-                  {/* X icon */}
-                  <div className="p-2 bg-white/20 backdrop-blur-sm rounded-full">
-                    <X className="h-4 w-4 text-white" />
-                  </div>
-                </div>
-
-                {/* Bottom Content */}
-                <div>
-                  {/* Date & Time */}
-                  <p className="text-white/80 text-sm mb-1">
-                    {formatDate(memberBooking.date)} · {memberBooking.interval}
-                  </p>
-
-                  {/* Member Name */}
-                  <h3 className="text-white text-2xl font-bold mb-2">
-                    {memberBooking.member_name}
-                  </h3>
-
-                  {/* Tags */}
-                  <div className="flex flex-wrap gap-2 mb-3">
-                    {memberBooking.level && (
-                      <span className="px-2.5 py-1 bg-white/20 backdrop-blur-sm rounded-full text-xs font-semibold text-white flex items-center gap-1">
-                        <GraduationCap className="h-3 w-3" />
-                        {formatLevel(memberBooking.level)}
-                      </span>
-                    )}
-                    {memberBooking.wave_side && (
-                      <span className="px-2.5 py-1 bg-white/20 backdrop-blur-sm rounded-full text-xs font-semibold text-white flex items-center gap-1">
-                        <Waves className="h-3 w-3" />
-                        {formatWaveSide(memberBooking.wave_side)}
-                      </span>
-                    )}
+                    {/* Manage booking button */}
+                    <button
+                      onClick={() => setShowBookingModal(true)}
+                      className="p-2 bg-white/20 backdrop-blur-sm rounded-full hover:bg-white/40 transition-colors"
+                      title="Gerenciar agendamento"
+                    >
+                      <X className="h-4 w-4 text-white" />
+                    </button>
                   </div>
 
-                  {/* Codes */}
-                  <div className="flex items-center gap-3 pt-3 border-t border-white/20">
-                    <div className="flex-1">
-                      <p className="text-white/60 text-[10px] uppercase tracking-wider mb-0.5">Voucher</p>
-                      <div className="flex items-center gap-1">
-                        <code className="text-white text-xs font-mono font-medium">{memberBooking.voucher_code}</code>
-                        <button
-                          onClick={() => copyToClipboard(memberBooking.voucher_code, 'voucher')}
-                          className="p-1 hover:bg-white/20 rounded transition-colors"
-                        >
-                          {copiedCode === 'voucher' ? (
-                            <Check className="h-3 w-3 text-green-400" />
-                          ) : (
-                            <Copy className="h-3 w-3 text-white/60" />
-                          )}
-                        </button>
-                      </div>
+                  {/* Bottom Content */}
+                  <div>
+                    {/* Date & Time */}
+                    <p className="text-white/80 text-sm mb-1">
+                      {formatDate(memberBooking.date)} · {memberBooking.interval}
+                    </p>
+
+                    {/* Member Name */}
+                    <h3 className="text-white text-2xl font-bold mb-2">
+                      {memberBooking.member_name}
+                    </h3>
+
+                    {/* Tags */}
+                    <div className="flex flex-wrap gap-2 mb-3">
+                      {memberBooking.level && (
+                        <span className="px-2.5 py-1 bg-white/20 backdrop-blur-sm rounded-full text-xs font-semibold text-white flex items-center gap-1">
+                          <GraduationCap className="h-3 w-3" />
+                          {formatLevel(memberBooking.level)}
+                        </span>
+                      )}
+                      {memberBooking.wave_side && (
+                        <span className="px-2.5 py-1 bg-white/20 backdrop-blur-sm rounded-full text-xs font-semibold text-white flex items-center gap-1">
+                          <Waves className="h-3 w-3" />
+                          {formatWaveSide(memberBooking.wave_side)}
+                        </span>
+                      )}
                     </div>
-                    <div className="flex-1">
-                      <p className="text-white/60 text-[10px] uppercase tracking-wider mb-0.5">Acesso</p>
-                      <div className="flex items-center gap-1">
-                        <code className="text-white text-xs font-mono font-medium">{memberBooking.access_code}</code>
-                        <button
-                          onClick={() => copyToClipboard(memberBooking.access_code, 'access')}
-                          className="p-1 hover:bg-white/20 rounded transition-colors"
-                        >
-                          {copiedCode === 'access' ? (
-                            <Check className="h-3 w-3 text-green-400" />
-                          ) : (
-                            <Copy className="h-3 w-3 text-white/60" />
-                          )}
-                        </button>
+
+                    {/* Codes */}
+                    <div className="flex items-center gap-3 pt-3 border-t border-white/20">
+                      <div className="flex-1">
+                        <p className="text-white/60 text-[10px] uppercase tracking-wider mb-0.5">Voucher</p>
+                        <div className="flex items-center gap-1">
+                          <code className="text-white text-xs font-mono font-medium">{memberBooking.voucher_code}</code>
+                          <button
+                            onClick={() => copyToClipboard(memberBooking.voucher_code, 'voucher')}
+                            className="p-1 hover:bg-white/20 rounded transition-colors"
+                          >
+                            {copiedCode === 'voucher' ? (
+                              <Check className="h-3 w-3 text-green-400" />
+                            ) : (
+                              <Copy className="h-3 w-3 text-white/60" />
+                            )}
+                          </button>
+                        </div>
+                      </div>
+                      <div className="flex-1">
+                        <p className="text-white/60 text-[10px] uppercase tracking-wider mb-0.5">Acesso</p>
+                        <div className="flex items-center gap-1">
+                          <code className="text-white text-xs font-mono font-medium">{memberBooking.access_code}</code>
+                          <button
+                            onClick={() => copyToClipboard(memberBooking.access_code, 'access')}
+                            className="p-1 hover:bg-white/20 rounded transition-colors"
+                          >
+                            {copiedCode === 'access' ? (
+                              <Check className="h-3 w-3 text-green-400" />
+                            ) : (
+                              <Copy className="h-3 w-3 text-white/60" />
+                            )}
+                          </button>
+                        </div>
                       </div>
                     </div>
                   </div>
@@ -590,6 +601,20 @@ export default function MemberDetailPage() {
             </CardContent>
           </Card>
         </div>
+      )}
+
+      {/* Booking Action Modal */}
+      {memberBooking && (
+        <BookingActionModal
+          isOpen={showBookingModal}
+          onClose={() => setShowBookingModal(false)}
+          booking={memberBooking}
+          onSuccess={() => {
+            queryClient.invalidateQueries({ queryKey: ['bookings'] });
+            queryClient.invalidateQueries({ queryKey: ['members'] });
+            queryClient.invalidateQueries({ queryKey: ['member'] });
+          }}
+        />
       )}
     </MainLayout>
   );

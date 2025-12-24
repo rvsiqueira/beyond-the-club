@@ -11,7 +11,10 @@ services:
     volumes:
       - ./data:/app/data
       - ./.env:/app/.env:ro
+      - ./.beyondtheclub_tokens.json:/app/.beyondtheclub_tokens.json
       - ./.beyondtheclub_availability.json:/app/.beyondtheclub_availability.json
+      - ./.beyondtheclub_members.json:/app/.beyondtheclub_members.json
+      - ./.beyondtheclub_preferences.json:/app/.beyondtheclub_preferences.json
     environment:
       - PYTHONPATH=/app
     networks:
@@ -57,6 +60,10 @@ services:
     volumes:
       - ./data:/app/data
       - ./.env:/app/.env:ro
+      - ./.beyondtheclub_tokens.json:/app/.beyondtheclub_tokens.json
+      - ./.beyondtheclub_availability.json:/app/.beyondtheclub_availability.json
+      - ./.beyondtheclub_members.json:/app/.beyondtheclub_members.json
+      - ./.beyondtheclub_preferences.json:/app/.beyondtheclub_preferences.json
     environment:
       - PYTHONPATH=/app
     depends_on:

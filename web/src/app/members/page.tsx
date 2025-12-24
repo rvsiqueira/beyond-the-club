@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { Search, User, CheckCircle, XCircle, Users } from 'lucide-react';
+import { Search, User, CheckCircle, XCircle, Ticket } from 'lucide-react';
 import { MainLayout } from '@/components/layout';
 import { Input } from '@/components/ui';
 import { useMembers } from '@/hooks';
@@ -110,7 +110,7 @@ export default function MembersPage() {
 
                     {/* Usage Badge */}
                     <span className="px-2.5 py-1 rounded-full text-xs font-bold bg-white/95 text-gray-800 flex items-center gap-1">
-                      <Users className="h-3 w-3" />
+                      <Ticket className="h-3 w-3" />
                       {member.usage}/{member.limit}
                     </span>
                   </div>

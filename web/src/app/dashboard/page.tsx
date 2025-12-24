@@ -189,8 +189,15 @@ export default function DashboardPage() {
     router.push(`/availability?date=${date}&level=${level}`);
   };
 
-  const handleSlotClick = (date: string) => {
-    router.push(`/availability?date=${date}`);
+  const handleSlotClick = (slot: { date: string; interval: string; level: string; wave_side: string }) => {
+    const params = new URLSearchParams({
+      date: slot.date,
+      interval: slot.interval,
+      level: slot.level,
+      wave_side: slot.wave_side,
+      open_modal: 'true'
+    });
+    router.push(`/availability?${params.toString()}`);
   };
 
   // Format level for display (full name)
@@ -232,7 +239,7 @@ export default function DashboardPage() {
             nextSessions.map((slot, idx) => (
               <div
                 key={`${slot.date}-${slot.interval}-${slot.level}-${idx}`}
-                onClick={() => handleSlotClick(slot.date)}
+                onClick={() => handleSlotClick(slot)}
                 className="relative rounded-2xl overflow-hidden shadow-lg group transition-all duration-300 cursor-pointer hover:shadow-xl hover:-translate-y-1"
               >
                 {/* Background Image */}

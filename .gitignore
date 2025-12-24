@@ -8,6 +8,9 @@
 # Members cache
 .beyondtheclub_members.json
 
+# Preferences cache
+.beyondtheclub_preferences.json
+
 # Availability cache
 .beyondtheclub_availability.json
 
