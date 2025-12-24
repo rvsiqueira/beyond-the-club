@@ -17,6 +17,9 @@
 # Local data directory
 data/
 
+# Cache directory (Docker volumes)
+cache/
+
 # Python
 __pycache__/
 *.py[cod]

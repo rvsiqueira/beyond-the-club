@@ -9,12 +9,15 @@ services:
     ports:
       - "8000:8000"
     volumes:
+      # Data directory for persistent storage
       - ./data:/app/data
+      # Environment file
       - ./.env:/app/.env:ro
-      - ./.beyondtheclub_tokens.json:/app/.beyondtheclub_tokens.json
-      - ./.beyondtheclub_availability.json:/app/.beyondtheclub_availability.json
-      - ./.beyondtheclub_members.json:/app/.beyondtheclub_members.json
-      - ./.beyondtheclub_preferences.json:/app/.beyondtheclub_preferences.json
+      # Cache files directory (created by init-cache.sh)
+      - ./cache/.beyondtheclub_tokens.json:/app/.beyondtheclub_tokens.json
+      - ./cache/.beyondtheclub_availability.json:/app/.beyondtheclub_availability.json
+      - ./cache/.beyondtheclub_members.json:/app/.beyondtheclub_members.json
+      - ./cache/.beyondtheclub_preferences.json:/app/.beyondtheclub_preferences.json
     environment:
       - PYTHONPATH=/app
     networks:
@@ -58,12 +61,15 @@ services:
     container_name: btc-mcp
     restart: unless-stopped
     volumes:
+      # Data directory for persistent storage
       - ./data:/app/data
+      # Environment file
       - ./.env:/app/.env:ro
-      - ./.beyondtheclub_tokens.json:/app/.beyondtheclub_tokens.json
-      - ./.beyondtheclub_availability.json:/app/.beyondtheclub_availability.json
-      - ./.beyondtheclub_members.json:/app/.beyondtheclub_members.json
-      - ./.beyondtheclub_preferences.json:/app/.beyondtheclub_preferences.json
+      # Cache files directory (created by init-cache.sh)
+      - ./cache/.beyondtheclub_tokens.json:/app/.beyondtheclub_tokens.json
+      - ./cache/.beyondtheclub_availability.json:/app/.beyondtheclub_availability.json
+      - ./cache/.beyondtheclub_members.json:/app/.beyondtheclub_members.json
+      - ./cache/.beyondtheclub_preferences.json:/app/.beyondtheclub_preferences.json
     environment:
       - PYTHONPATH=/app
     depends_on:
