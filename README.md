@@ -1,35 +1,85 @@
-# BeyondTheClub Sport Session Booking Bot
+# BeyondTheClub - Sport Session Booking System
 
-Bot automatizado para monitorar e reservar sessões de esportes no Beyond The Club.
+Sistema automatizado para monitorar e reservar sessões de esportes no Beyond The Club, com suporte a CLI, API REST, aplicação Web e integração com AI Agents via MCP.
+
+## Arquitetura
+
+```
+┌─────────────────────────────────────────────────────────────────────┐
+│                         Beyond The Club                             │
+├─────────────────────────────────────────────────────────────────────┤
+│                                                                     │
+│  ┌─────────────┐    ┌─────────────┐    ┌─────────────┐             │
+│  │    CLI      │    │   Web UI    │    │ AI Agents   │             │
+│  │  (main.py)  │    │  (Next.js)  │    │   (Claude)  │             │
+│  └──────┬──────┘    └──────┬──────┘    └──────┬──────┘             │
+│         │                  │                  │                     │
+│         │           ┌──────▼──────┐    ┌──────▼──────┐             │
+│         │           │  REST API   │    │ MCP Server  │             │
+│         │           │  (FastAPI)  │    │   (stdio)   │             │
+│         │           └──────┬──────┘    └──────┬──────┘             │
+│         │                  │                  │                     │
+│         └──────────────────┼──────────────────┘                     │
+│                            │                                        │
+│                   ┌────────▼────────┐                               │
+│                   │    Services     │                               │
+│                   │  (Python Core)  │                               │
+│                   └────────┬────────┘                               │
+│                            │                                        │
+│         ┌──────────────────┼──────────────────┐                     │
+│         │                  │                  │                     │
+│  ┌──────▼──────┐    ┌──────▼──────┐    ┌──────▼──────┐             │
+│  │ Beyond API  │    │   Cache     │    │   Graph     │             │
+│  │  (Firebase) │    │   (JSON)    │    │  (NetworkX) │             │
+│  └─────────────┘    └─────────────┘    └─────────────┘             │
+│                                                                     │
+└─────────────────────────────────────────────────────────────────────┘
+```
 
 ## Esportes Suportados
 
 | Esporte | Argumento | Atributos |
 |---------|-----------|-----------|
-| Surf | `--sport surf` (padrão) | Nível + Lado da onda |
-| Tennis | `--sport tennis` | Quadra |
+| Surf | `surf` (padrão) | Nível + Lado da onda |
+| Tennis | `tennis` | Quadra |
 
-## Funcionalidades
+### Níveis de Surf
+- `Iniciante1`, `Iniciante2`
+- `Intermediario1`, `Intermediario2`
+- `Avançado1`, `Avançado2`
 
-- **Multi-esporte**: Suporte a surf, tennis e outros esportes
-- **Multi-membro**: Monitorar e reservar para múltiplos membros do mesmo título
-- **Preferências individuais**: Cada membro pode ter suas próprias preferências por esporte
-- **Priorização**: Sessões são buscadas na ordem de prioridade configurada
-- **Cache inteligente**: Cache de tokens e membros para performance
-- Suporte a múltiplos níveis de surf: Iniciante1, Iniciante2, Intermediario1, Intermediario2, Avançado1, Avançado2
-- Suporte a ambos lados da onda: Lado_esquerdo, Lado_direito
-- Filtro por horários específicos
-- Filtro por datas específicas
-- Reserva automática quando sessão disponível
+### Lados da Onda
+- `Lado_esquerdo`, `Lado_direito`
 
-## Instalação
+---
+
+## Quick Start
+
+### Usando Docker (Recomendado)
+
+```bash
+# Clone o repositório
+git clone <repo-url>
+cd beyond-the-club
+
+# Configure as variáveis de ambiente
+cp .env.example .env
+# Edite .env com suas configurações
+
+# Inicie API + Web
+docker-compose up -d
+
+# Acesse
+# - Web UI: http://localhost:3000
+# - API Docs: http://localhost:8000/docs
+```
+
+### Instalação Local
 
 ```bash
 # Criar ambiente virtual
 python3 -m venv venv
-source venv/bin/activate  # Linux/Mac
-# ou
-venv\Scripts\activate  # Windows
+source venv/bin/activate
 
 # Instalar dependências
 pip install -r requirements.txt
@@ -39,242 +89,320 @@ cp .env.example .env
 # Edite o arquivo .env com suas configurações
 ```
 
-## Configuração
-
-Edite o arquivo `.env` com suas credenciais:
-
-```bash
-# Credenciais admin
-ADMIN_EMAIL=admin@example.com
-ADMIN_PASSWORD=sua_senha
-
-# Seu telefone
-PHONE_NUMBER=+5511999999999
-
-# Esportes disponíveis
-SPORTS=surf,tennis
-
-# Configurações de Surf
-SURF_LEVELS=Iniciante1,Iniciante2,Intermediario1,Intermediario2,Avançado1,Avançado2
-SURF_WAVE_SIDES=Lado_esquerdo,Lado_direito
-
-# Configurações de Tennis
-TENNIS_COURTS=Quadra_Saibro
-
-# Configurações do bot
-CHECK_INTERVAL_SECONDS=60
-AUTO_BOOK=true
-```
-
 ---
 
-## Comandos CLI
+## Componentes
 
-### Comandos de Consulta
+### 1. CLI (main.py)
 
-| Comando | Descrição |
-|---------|-----------|
-| `--sport <surf\|tennis>` | Seleciona o esporte (padrão: surf) |
-| `--list-members` | Lista todos os membros disponíveis no título |
-| `--refresh-members` | Força atualização da lista de membros da API |
-| `--check-status` | Verifica status do sistema do esporte selecionado |
-| `--inscriptions` | Mostra inscrições do usuário |
-
-### Comandos de Configuração
-
-| Comando | Descrição |
-|---------|-----------|
-| `--configure` | Configura preferências de sessão para um membro |
-
-### Comandos de Monitoramento
-
-| Comando | Descrição |
-|---------|-----------|
-| `--member <ids>` | Seleciona membro(s) para monitorar (ID, nome ou lista separada por vírgula) |
-| `--once` | Executa verificação única (não fica em loop) |
-| `--no-auto-book` | Apenas verifica disponibilidade, não reserva |
-
-### Comandos de Autenticação
-
-| Comando | Descrição |
-|---------|-----------|
-| `--sms-code <código>` | Fornece código SMS diretamente (pula prompt) |
-| `--no-cache` | Força re-autenticação (ignora tokens em cache) |
-
-### Outros
-
-| Comando | Descrição |
-|---------|-----------|
-| `-v, --verbose` | Habilita logs detalhados (debug) |
-
----
-
-## Uso
-
-### 1. Listar membros disponíveis
+Interface de linha de comando para operações manuais e scripts.
 
 ```bash
-# Surf (padrão)
+# Listar membros
 python main.py --list-members
 
-# Tennis
-python main.py --sport tennis --list-members
-
-# Força refresh da API
-python main.py --list-members --refresh-members
-```
-
-Saída:
-```
-Membros disponíveis (SURF):
-  1. [12869] RAFAEL (Titular) - Uso: 0/1 - Prefs: ✓
-  2. [16230] GABRIEL - Uso: 0/1 - Prefs: ✗
-  3. [14002] JULIA - Uso: 0/1 - Prefs: ✗
-```
-
-### 2. Configurar preferências de um membro
-
-```bash
-# Surf
+# Configurar preferências
 python main.py --configure
 
-# Tennis
-python main.py --sport tennis --configure
-```
-
-#### Exemplo de fluxo para Surf:
-```
-Membros disponíveis (SURF):
-  1. [12869] RAFAEL (Titular) - Uso: 0/1 - Prefs: ✓
-  2. [16230] GABRIEL - Uso: 0/1 - Prefs: ✗
-
-Selecione o membro para configurar (número): 1
-
-RAFAEL possui preferências de Surf configuradas:
-  1. Iniciante1 / Lado_esquerdo
-  2. Iniciante2 / Lado_direito
-  Horários: 08:00, 09:00
-
-Deseja manter estas preferências? (s/n): n
-Apagando preferências anteriores...
-
-Configurando preferências de Surf para RAFAEL...
-
-Adicionar sessão de interesse:
-  Nível disponíveis:
-    1. Iniciante1
-    2. Iniciante2
-    3. Intermediario1
-    4. Intermediario2
-    5. Avançado1
-    6. Avançado2
-  Nível (número): 1
-  Lado disponíveis:
-    1. Lado_esquerdo
-    2. Lado_direito
-  Lado (número): 1
-  Adicionado: Iniciante1 / Lado_esquerdo
-
-Adicionar outra? (s/n): s
-...
-
-Horários preferidos (ex: 08:00,09:00 ou Enter para todos): 08:00,09:00
-Datas específicas (ex: 2025-01-15,2025-01-16 ou Enter para todas):
-
-Preferências de Surf salvas para RAFAEL:
-  1. Iniciante1 / Lado_esquerdo (prioridade 1)
-  2. Iniciante2 / Lado_direito (prioridade 2)
-  Horários: 08:00, 09:00
-```
-
-#### Exemplo de fluxo para Tennis:
-```bash
-$ python main.py --sport tennis --configure
-
-Membros disponíveis (TENNIS):
-  1. [12869] RAFAEL (Titular) - Uso: 0/1 - Prefs: ✗
-
-Selecione o membro para configurar (número): 1
-
-Configurando preferências de Tennis para RAFAEL...
-
-Adicionar sessão de interesse:
-  Quadra disponíveis:
-    1. Quadra_Saibro
-  Quadra (número): 1
-  Adicionado: Quadra_Saibro
-
-Adicionar outra? (s/n): n
-
-Horários preferidos (ex: 08:00,09:00 ou Enter para todos): 10:00,14:00
-
-Preferências de Tennis salvas para RAFAEL:
-  1. Quadra_Saibro (prioridade 1)
-  Horários: 10:00, 14:00
-```
-
-### 3. Monitorar sessões
-
-```bash
-# Surf (padrão)
+# Monitorar sessões
 python main.py --member rafael
 
-# Tennis
-python main.py --sport tennis --member rafael
-
-# Múltiplos membros
-python main.py --member rafael,gabriel,julia
-
-# Interativo (se não passar --member)
-python main.py
-> Selecione o(s) membro(s) para monitorar (ex: 1,2,3 ou "todos"): 1,2
-> Monitorando para RAFAEL, GABRIEL...
+# Ver ajuda completa
+python main.py --help
 ```
 
-### 4. Verificação única
+### 2. API REST (FastAPI)
+
+API RESTful completa para integração com aplicações.
+
+- **Base URL**: `http://localhost:8000/api/v1`
+- **Documentação**: `http://localhost:8000/docs` (Swagger UI)
+- **OpenAPI**: `http://localhost:8000/openapi.json`
+
+### 3. Web UI (Next.js)
+
+Interface web moderna para gerenciamento visual.
+
+- **URL**: `http://localhost:3000`
+- **Stack**: Next.js 14, React 18, Tailwind CSS, Zustand
+
+### 4. MCP Server
+
+Servidor MCP para integração com AI Agents (Claude).
 
 ```bash
-# Uma verificação e sai
-python main.py --member rafael --once
-
-# Sem reservar automaticamente
-python main.py --member rafael --once --no-auto-book
-
-# Tennis
-python main.py --sport tennis --member rafael --once
+# Iniciar MCP Server standalone
+cd mcp && python -m mcp.server
 ```
 
-### 5. Ver inscrições
+---
 
-```bash
-# Surf
-python main.py --inscriptions
+## API REST - Endpoints
 
-# Tennis
-python main.py --sport tennis --inscriptions
+### Autenticação (`/api/v1/auth`)
+
+| Método | Endpoint | Descrição |
+|--------|----------|-----------|
+| POST | `/register` | Registrar novo usuário |
+| POST | `/login` | Login com telefone e senha |
+| POST | `/login/phone` | Login apenas com telefone (voice agent) |
+| POST | `/refresh` | Renovar access token |
+| GET | `/me` | Obter dados do usuário atual |
+| POST | `/link-member/{member_id}` | Vincular membro Beyond à conta |
+| POST | `/beyond/request-sms` | Solicitar SMS para autenticação Beyond |
+| POST | `/beyond/verify-sms` | Verificar código SMS do Beyond |
+| GET | `/beyond/status` | Status da autenticação Beyond |
+
+### Membros (`/api/v1/members`)
+
+| Método | Endpoint | Descrição |
+|--------|----------|-----------|
+| GET | `/` | Listar todos os membros |
+| GET | `/{member_id}` | Detalhes de um membro |
+| GET | `/{member_id}/preferences` | Preferências do membro |
+| PUT | `/{member_id}/preferences` | Atualizar preferências |
+| DELETE | `/{member_id}/preferences` | Remover preferências |
+| GET | `/{member_id}/graph-summary` | Resumo do graph do membro |
+
+### Disponibilidade (`/api/v1/availability`)
+
+| Método | Endpoint | Descrição |
+|--------|----------|-----------|
+| GET | `/` | Slots disponíveis (cache) |
+| POST | `/scan` | Forçar scan de disponibilidade |
+| GET | `/dates` | Datas com disponibilidade |
+| GET | `/for-member/{member_id}` | Slots para preferências do membro |
+
+### Reservas (`/api/v1/bookings`)
+
+| Método | Endpoint | Descrição |
+|--------|----------|-----------|
+| GET | `/` | Listar reservas ativas |
+| POST | `/` | Criar nova reserva |
+| GET | `/{voucher_code}` | Detalhes da reserva |
+| DELETE | `/{voucher_code}` | Cancelar reserva |
+| POST | `/{voucher_code}/swap` | Trocar membro da reserva |
+| GET | `/by-date/{date}` | Reservas por data |
+
+### Monitor (`/api/v1/monitor`)
+
+| Método | Endpoint | Descrição |
+|--------|----------|-----------|
+| POST | `/start` | Iniciar monitoramento automático |
+| GET | `/{monitor_id}/status` | Status do monitoramento |
+| POST | `/{monitor_id}/stop` | Parar monitoramento |
+| GET | `/` | Listar monitores ativos |
+| WebSocket | `/ws/{monitor_id}` | Atualizações em tempo real |
+
+### Esportes (`/api/v1/sports`)
+
+| Método | Endpoint | Descrição |
+|--------|----------|-----------|
+| GET | `/` | Listar esportes disponíveis |
+| GET | `/{sport}` | Configuração do esporte |
+| GET | `/{sport}/levels` | Níveis disponíveis |
+| GET | `/{sport}/wave-sides` | Lados da onda (Surf) |
+| GET | `/{sport}/combos` | Combinações válidas |
+| GET | `/{sport}/packages` | IDs de pacotes |
+| GET | `/{sport}/packages/{combo_key}` | Pacote específico |
+
+### Sistema (`/api/v1/system`)
+
+| Método | Endpoint | Descrição |
+|--------|----------|-----------|
+| GET | `/status` | Health check |
+
+---
+
+## MCP Server - Claude Integration
+
+O servidor MCP expõe ferramentas e recursos para que o Claude possa interagir com o sistema de reservas.
+
+### Ferramentas (Tools)
+
+| Ferramenta | Descrição |
+|------------|-----------|
+| `check_availability` | Verificar slots disponíveis com filtros opcionais |
+| `scan_availability` | Forçar atualização do cache de disponibilidade |
+| `book_session` | Reservar sessão para um membro |
+| `cancel_booking` | Cancelar reserva por código voucher |
+| `list_bookings` | Listar reservas ativas |
+| `get_members` | Obter lista de membros com status de uso |
+| `get_member_preferences` | Obter preferências de um membro |
+| `start_auto_monitor` | Iniciar monitoramento automático |
+| `check_monitor_status` | Verificar status do monitor |
+
+### Recursos (Resources)
+
+| URI | Descrição |
+|-----|-----------|
+| `beyond://members` | Lista de membros com status de uso |
+| `beyond://bookings` | Reservas ativas |
+| `beyond://availability` | Cache de disponibilidade |
+| `beyond://preferences` | Preferências de todos os membros |
+
+### Exemplo de Uso com Claude
+
+```
+Usuário: "Quero reservar uma aula de surf para o Rafael amanhã às 8h"
+
+Claude usa as ferramentas:
+1. get_members() - Encontra o membro Rafael
+2. check_availability(date="2025-12-25", level="Intermediario2") - Verifica slots
+3. book_session(member_name="Rafael", date="2025-12-25", time="08:00") - Faz a reserva
+```
+
+---
+
+## Knowledge Graph - AI Agents
+
+O sistema mantém um grafo de conhecimento para análises semânticas e recomendações.
+
+### Tipos de Nós
+
+| Tipo | Descrição |
+|------|-----------|
+| `User` | Usuários do sistema (identificados por telefone) |
+| `Member` | Membros Beyond com nome e status |
+| `Sport` | Esportes (surf, tennis) |
+| `Preference` | Preferências de sessão com prioridade |
+| `Level` | Níveis de skill (Surf) |
+| `WaveSide` | Lados da onda (Surf) |
+| `Court` | Quadras (Tennis) |
+| `TimeSlot` | Horários preferidos |
+| `Booking` | Reservas com voucher/access code |
+| `Slot` | Slots de sessão disponíveis |
+| `Date` | Datas de sessão |
+
+### Tipos de Arestas
+
+| Tipo | Relação |
+|------|---------|
+| `HAS_MEMBER` | User → Member |
+| `HAS_PREFERENCE` | Member → Preference |
+| `FOR_SPORT` | Preference → Sport |
+| `PREFERS_LEVEL` | Preference → Level |
+| `PREFERS_WAVE_SIDE` | Preference → WaveSide |
+| `PREFERS_COURT` | Preference → Court |
+| `PREFERS_HOUR` | Member → TimeSlot |
+| `BOOKED` | Member → Booking |
+| `FOR_SLOT` | Booking → Slot |
+| `ON_DATE` | Slot → Date |
+| `HAS_LEVEL` | Slot → Level |
+| `HAS_WAVE_SIDE` | Slot → WaveSide |
+| `HAS_COURT` | Slot → Court |
+
+### Queries Semânticas
+
+O GraphService oferece consultas semânticas para AI Agents:
+
+```python
+# Encontrar slot ótimo baseado em preferências
+graph_service.find_optimal_slot(member_id=12869, sport="surf")
+
+# Encontrar membros com preferências similares
+graph_service.find_similar_members(member_id=12869, sport="surf")
+
+# Histórico de reservas do membro
+graph_service.get_member_booking_history(member_id=12869)
+
+# Combinações mais populares
+graph_service.get_popular_combos(sport="surf", limit=5)
+
+# Resumo completo do membro
+graph_service.get_member_summary(member_id=12869)
+```
+
+### Endpoint do Graph
+
+```http
+GET /api/v1/members/{member_id}/graph-summary
+```
+
+Retorna:
+- Preferências do membro
+- Horários preferidos
+- Histórico de reservas
+- Membros similares
+
+---
+
+## Estrutura do Projeto
+
+```
+beyond-the-club/
+├── api/                          # FastAPI REST API
+│   ├── main.py                   # Aplicação FastAPI + APScheduler
+│   ├── deps.py                   # Injeção de dependências
+│   └── v1/                       # Endpoints v1
+│       ├── auth.py               # Autenticação
+│       ├── availability.py       # Disponibilidade
+│       ├── bookings.py           # Reservas
+│       ├── members.py            # Membros
+│       ├── monitor.py            # Monitor WebSocket
+│       ├── sports.py             # Configuração de esportes
+│       └── system.py             # Health check
+│
+├── web/                          # Next.js Frontend
+│   ├── src/app/                  # Pages (App Router)
+│   ├── src/components/           # Componentes React
+│   ├── src/hooks/                # Custom hooks
+│   └── src/types/                # TypeScript types
+│
+├── mcp/                          # MCP Server (Claude)
+│   ├── server.py                 # Servidor MCP principal
+│   ├── context.py                # Inicialização de serviços
+│   ├── tools/                    # Ferramentas MCP
+│   └── resources/                # Recursos MCP
+│
+├── src/                          # Core Python
+│   ├── bot.py                    # Orquestração principal
+│   ├── beyond_api.py             # Cliente HTTP Beyond
+│   ├── session_monitor.py        # Lógica de monitoramento
+│   ├── config.py                 # Configurações
+│   ├── packages.py               # Mapeamento de pacotes
+│   ├── graph/                    # Knowledge Graph
+│   │   ├── schema.py             # Definições de nós/arestas
+│   │   ├── store.py              # Persistência NetworkX
+│   │   └── queries.py            # Queries semânticas
+│   ├── services/                 # Camada de serviços
+│   │   ├── auth_service.py       # Autenticação Firebase
+│   │   ├── user_auth_service.py  # Autenticação JWT
+│   │   ├── member_service.py     # Operações de membros
+│   │   ├── availability_service.py # Cache de disponibilidade
+│   │   ├── booking_service.py    # Operações de reserva
+│   │   ├── monitor_service.py    # Auto-monitor
+│   │   ├── beyond_token_service.py # Cache de tokens
+│   │   └── graph_service.py      # Operações do graph
+│   └── auth/                     # Utilitários de autenticação
+│       ├── users.py              # Model/CRUD de usuários
+│       ├── jwt_handler.py        # Manipulação JWT
+│       └── password.py           # Hash de senhas
+│
+├── main.py                       # CLI Entry point
+├── docker-compose.yml            # Orquestração Docker
+├── Dockerfile.api                # Container API
+├── Dockerfile.web                # Container Web
+├── Dockerfile.mcp                # Container MCP
+└── requirements.txt              # Dependências Python
 ```
 
 ---
 
 ## Arquivos de Cache
 
-O bot mantém dois arquivos de cache na raiz do projeto:
+O sistema mantém caches JSON para performance:
 
-### `.beyondtheclub_tokens.json`
+| Arquivo | Descrição |
+|---------|-----------|
+| `.beyondtheclub_tokens.json` | Tokens Firebase/Beyond |
+| `.beyondtheclub_members.json` | Lista de membros |
+| `.beyondtheclub_availability.json` | Cache de slots |
+| `.beyondtheclub_preferences.json` | Preferências separadas |
+| `data/graph.json` | Knowledge Graph persistido |
+| `data/users.json` | Usuários do sistema |
 
-Cache de tokens de autenticação Firebase.
-
-```json
-{
-  "id_token": "eyJhbGciOiJSUzI1NiIs...",
-  "refresh_token": "AMf-vBw...",
-  "expires_at": 1703123456.789
-}
-```
-
-### `.beyondtheclub_members.json`
-
-Cache de membros e suas preferências (separadas por esporte).
+### Estrutura do Cache de Membros
 
 ```json
 {
@@ -288,177 +416,274 @@ Cache de membros e suas preferências (separadas por esporte).
       "limit": 1
     }
   ],
-  "preferences": {
-    "12869": {
-      "surf": {
-        "sessions": [
-          {"attributes": {"level": "Iniciante1", "wave_side": "Lado_esquerdo"}},
-          {"attributes": {"level": "Avançado1", "wave_side": "Lado_direito"}}
-        ],
-        "target_hours": ["08:00", "09:00"],
-        "target_dates": []
-      },
-      "tennis": {
-        "sessions": [
-          {"attributes": {"court": "Quadra_Saibro"}}
-        ],
-        "target_hours": ["10:00", "14:00"],
-        "target_dates": []
-      }
-    }
-  },
-  "last_updated": "2025-12-22T10:30:00.123456"
+  "last_updated": "2025-12-24T10:30:00"
 }
 ```
 
-#### Estrutura `members[]`
+### Estrutura de Preferências
 
-| Campo | Tipo | Descrição |
-|-------|------|-----------|
-| `member_id` | int | ID único do membro na API |
-| `name` | string | Nome completo |
-| `social_name` | string | Nome social (apelido) |
-| `is_titular` | bool | Se é o titular do título |
-| `usage` | int | Sessões já usadas no período |
-| `limit` | int | Limite de sessões no período |
+```json
+{
+  "12869": {
+    "surf": {
+      "sessions": [
+        {"attributes": {"level": "Intermediario2", "wave_side": "Lado_direito"}}
+      ],
+      "target_hours": ["08:00", "09:00"],
+      "target_dates": []
+    }
+  }
+}
+```
 
-#### Estrutura `preferences{}`
+---
 
-Chave: `member_id` como string
+## Deploy com Docker
 
-| Campo | Tipo | Descrição |
-|-------|------|-----------|
-| `{sport}` | object | Preferências separadas por esporte (surf, tennis) |
-| `{sport}.sessions` | array | Lista de preferências de sessão em ordem de prioridade |
-| `{sport}.sessions[].attributes` | object | Atributos da sessão (varia por esporte) |
-| `{sport}.target_hours` | array | Horários preferidos (ex: ["08:00", "09:00"]) |
-| `{sport}.target_dates` | array | Datas específicas (ex: ["2025-01-15"]) |
+### Desenvolvimento
 
-#### Atributos por Esporte
+```bash
+# API + Web
+docker-compose up -d
 
-| Esporte | Atributos |
+# Com MCP Server
+docker-compose --profile mcp up -d
+
+# Ver logs
+docker-compose logs -f api
+docker-compose logs -f web
+```
+
+### Produção
+
+```bash
+# Com nginx reverse proxy
+docker-compose --profile production up -d
+```
+
+### Volumes Persistidos
+
+- `./data` → `/app/data` (graph, users)
+- `./.beyondtheclub_*.json` → Caches
+
+---
+
+## Configuração
+
+### Variáveis de Ambiente
+
+```bash
+# Credenciais admin Beyond
+ADMIN_EMAIL=admin@example.com
+ADMIN_PASSWORD=sua_senha
+
+# Telefone para SMS
+PHONE_NUMBER=+5511999999999
+
+# JWT Secret (produção)
+JWT_SECRET_KEY=your-secret-key
+
+# Database
+DATABASE_URL=sqlite:///./data/beyond.db
+```
+
+### APScheduler (API)
+
+A API executa tarefas agendadas:
+
+- **Hourly**: Refresh de disponibilidade (minuto :00)
+- **Admin Phone**: `+5511972741849` para tasks agendadas
+
+---
+
+## Autenticação
+
+### Dois Níveis de Autenticação
+
+1. **Aplicação (JWT)**
+   - Registro com telefone + senha
+   - Login retorna access_token + refresh_token
+   - Tokens armazenados no browser/app
+
+2. **Beyond API (Firebase)**
+   - SMS enviado para telefone
+   - Código verificado troca por Firebase tokens
+   - Tokens cacheados por usuário
+
+### Fluxo de Autenticação
+
+```
+1. Usuário faz login na aplicação (JWT)
+2. Usuário solicita SMS do Beyond
+3. Usuário insere código SMS
+4. Sistema armazena tokens Beyond linkados ao usuário
+5. Todas as operações usam os tokens do usuário
+```
+
+---
+
+## CLI - Comandos
+
+### Consulta
+
+| Comando | Descrição |
 |---------|-----------|
-| surf | `level`, `wave_side` |
-| tennis | `court` |
+| `--sport <surf\|tennis>` | Seleciona o esporte |
+| `--list-members` | Lista membros disponíveis |
+| `--refresh-members` | Força refresh da API |
+| `--check-status` | Status do sistema |
+| `--inscriptions` | Inscrições do usuário |
 
----
+### Configuração
 
-## Fluxo de Autenticação
+| Comando | Descrição |
+|---------|-----------|
+| `--configure` | Configura preferências interativamente |
 
-1. O bot autentica com credenciais admin no Firebase
-2. Envia SMS para seu número de telefone
-3. Você digita o código SMS recebido
-4. O bot troca o código por tokens de acesso
-5. Tokens são salvos em `.beyondtheclub_tokens.json` para uso futuro
+### Monitoramento
 
----
+| Comando | Descrição |
+|---------|-----------|
+| `--member <ids>` | Membros para monitorar |
+| `--once` | Verificação única |
+| `--no-auto-book` | Apenas verificar, não reservar |
 
-## Fluxo de Monitoramento
+### Autenticação
 
-```
-1. Selecionar esporte (--sport)
-2. Carregar membros (cache ou API)
-3. Selecionar membro(s) para monitorar
-4. Validar/configurar preferências de cada membro para o esporte
-5. Para cada membro:
-   a. Para cada preferência (em ordem de prioridade):
-      - Buscar datas disponíveis
-      - Para cada data:
-        - Buscar sessões disponíveis
-        - Filtrar por horário (se configurado)
-        - Filtrar por data (se configurado)
-   b. Se encontrar sessão disponível:
-      - Reservar (passando member_id)
-      - Registrar no cache de sessões reservadas
-6. Aguardar intervalo e repetir (se não for --once)
-```
+| Comando | Descrição |
+|---------|-----------|
+| `--sms-code <código>` | Código SMS direto |
+| `--no-cache` | Força re-autenticação |
 
----
+### Debug
 
-## Logs
-
-Os logs são salvos em arquivos diários: `beyondtheclub_YYYYMMDD.log`
-
-Exemplo de log durante monitoramento:
-```
-2025-12-22 10:30:00 | INFO     | Checking sessions for RAFAEL...
-2025-12-22 10:30:01 | INFO     | [RAFAEL] Checking Iniciante1 / Lado_esquerdo
-2025-12-22 10:30:02 | INFO     | [RAFAEL] Found 3 dates for Iniciante1 / Lado_esquerdo
-2025-12-22 10:30:03 | INFO     | [RAFAEL] Found: 2025-12-28 08:00 (Iniciante1 / Lado_esquerdo) - 2 spots
-2025-12-22 10:30:03 | INFO     | [RAFAEL] Booking: 2025-12-28 08:00 (Iniciante1 / Lado_esquerdo)
-2025-12-22 10:30:04 | INFO     | [RAFAEL] Successfully booked session 12345!
-```
-
----
-
-## Estrutura do Projeto
-
-```
-BeyondTheClub/
-├── main.py                          # Script principal e CLI
-├── requirements.txt                 # Dependências Python
-├── .env.example                     # Exemplo de configuração
-├── .env                             # Configuração (não versionado)
-├── .gitignore
-├── .beyondtheclub_tokens.json       # Cache de tokens (não versionado)
-├── .beyondtheclub_members.json      # Cache de membros (não versionado)
-└── src/
-    ├── __init__.py
-    ├── config.py                    # Dataclasses de configuração + SportConfig
-    ├── firebase_auth.py             # Autenticação Firebase
-    ├── sms_auth.py                  # Autenticação via SMS
-    ├── beyond_api.py                # Cliente HTTP da API Beyond
-    ├── session_monitor.py           # Lógica de busca e booking
-    └── bot.py                       # Orquestrador e cache de membros
-```
-
-### Módulos
-
-| Módulo | Responsabilidade |
-|--------|------------------|
-| `main.py` | CLI, parsing de argumentos, fluxos interativos |
-| `bot.py` | Orquestração, cache de membros/tokens, preferências por esporte |
-| `session_monitor.py` | Busca de sessões, booking, filtros (genérico por esporte) |
-| `beyond_api.py` | Chamadas HTTP à API do Beyond (parametrizadas por esporte) |
-| `firebase_auth.py` | Autenticação e refresh de tokens Firebase |
-| `sms_auth.py` | Fluxo de autenticação via SMS |
-| `config.py` | Carregamento de configurações do .env + SportConfig |
-
----
-
-## API Endpoints Utilizados
-
-| Endpoint | Método | Descrição |
-|----------|--------|-----------|
-| `/schedules/{sport}/status` | GET | Lista membros e uso de sessões |
-| `/schedules/{sport}/dates` | GET | Datas disponíveis para atributos |
-| `/schedules/{sport}/times` | GET | Horários disponíveis para data/atributos |
-| `/schedules/{sport}/book` | POST | Reservar sessão |
-| `/inscriptions` | GET | Inscrições do usuário |
+| Comando | Descrição |
+|---------|-----------|
+| `-v, --verbose` | Logs detalhados |
 
 ---
 
 ## Troubleshooting
 
-### Token expirado
+### Token Beyond Expirado
+
 ```bash
+# CLI
 python main.py --no-cache
+
+# Web UI
+Dashboard > Settings > Verificar Beyond > Solicitar novo SMS
 ```
 
-### Lista de membros desatualizada
+### Cache Desatualizado
+
 ```bash
+# Membros
 python main.py --list-members --refresh-members
+
+# Disponibilidade via API
+curl -X POST http://localhost:8000/api/v1/availability/scan
 ```
 
-### Membro não encontrado
-Verifique se o nome está correto (case insensitive) ou use o ID numérico.
+### Membro Não Encontrado
 
-### Preferências não configuradas
-O bot obriga configurar preferências antes de iniciar monitoramento. Use `--configure` ou será solicitado automaticamente.
+- Verifique nome (case insensitive) ou use ID numérico
+- Faça refresh: `--refresh-members`
 
-### Esporte incorreto
-Verifique se está usando o argumento `--sport` correto:
+### WebSocket Não Conecta
+
+- Verifique se Beyond está autenticado
+- Use HTTPS em produção
+
+---
+
+## Logs
+
+Logs são salvos em: `beyondtheclub_YYYYMMDD.log`
+
+```
+2025-12-24 10:30:00 | INFO | Checking sessions for RAFAEL...
+2025-12-24 10:30:01 | INFO | [RAFAEL] Found: 2025-12-28 08:00 (Intermediario2 / Lado_direito)
+2025-12-24 10:30:02 | INFO | [RAFAEL] Successfully booked session!
+```
+
+---
+
+## Desenvolvimento
+
+### Testes
+
 ```bash
-# Para tennis
-python main.py --sport tennis --configure
+# Unit tests
+pytest tests/
+
+# Com coverage
+pytest --cov=src tests/
 ```
+
+### Linting
+
+```bash
+# Python
+ruff check .
+black --check .
+
+# TypeScript
+cd web && npm run lint
+```
+
+### Build
+
+```bash
+# Docker images
+docker-compose build
+
+# Web standalone
+cd web && npm run build
+```
+
+---
+
+## Impacto para AI Agents
+
+### MCP - O que os Agentes Podem Fazer
+
+1. **Consultar Disponibilidade**: Verificar slots disponíveis com filtros
+2. **Fazer Reservas**: Reservar sessões para membros
+3. **Gerenciar Reservas**: Cancelar ou trocar membros
+4. **Consultar Membros**: Ver status de uso e preferências
+5. **Monitoramento Automático**: Iniciar/parar monitores
+
+### Graph - Insights para Agentes
+
+1. **Recomendações**: Slots ótimos baseados em preferências
+2. **Similaridade**: Membros com gostos parecidos
+3. **Histórico**: Padrões de reservas passadas
+4. **Analytics**: Combinações mais populares
+
+### Integração Sugerida
+
+```python
+# Agente pode usar GraphService para decisões inteligentes
+optimal_slot = graph_service.find_optimal_slot(member_id, "surf")
+similar = graph_service.find_similar_members(member_id)
+
+# E MCP Tools para ações
+mcp_tools.book_session(member_name, date, time)
+```
+
+---
+
+## Contribuição
+
+1. Fork o repositório
+2. Crie branch: `git checkout -b feature/nova-feature`
+3. Commit: `git commit -m 'Add nova feature'`
+4. Push: `git push origin feature/nova-feature`
+5. Abra Pull Request
+
+---
+
+## Licença
+
+MIT License - veja LICENSE para detalhes.
