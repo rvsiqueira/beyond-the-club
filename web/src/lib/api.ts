@@ -1,285 +1,358 @@
-'use client';
-
 import type {
+  AuthTokens,
   LoginRequest,
   RegisterRequest,
-  CreateBookingRequest,
+  User,
+  Member,
   MemberPreferences,
+  AvailabilityResponse,
+  BookingsListResponse,
+  Booking,
+  CreateBookingRequest,
+  MonitorStatus,
   StartMonitorRequest,
   SessionSearchRequest,
+  SessionOptionsResponse,
+  SportConfig,
 } from '@/types';
 
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || '/api';
+// Use direct API URL in browser (client-side)
+const API_BASE = typeof window !== 'undefined'
+  ? 'http://localhost:8000/api/v1'  // Browser calls API directly
+  : '/api/v1';  // Server-side uses rewrite
 
-// Auth error handler for token expiration
-let authErrorHandler: (() => void) | null = null;
+// Custom error type for Beyond auth requirement
+export interface BeyondAuthError extends Error {
+  isBeyondAuthRequired: boolean;
+}
+
+export function isBeyondAuthError(error: unknown): error is BeyondAuthError {
+  return error instanceof Error && (error as BeyondAuthError).isBeyondAuthRequired === true;
+}
+
+// Custom error type for invalid/expired token
+export interface AuthTokenError extends Error {
+  isAuthTokenError: boolean;
+}
+
+export function isAuthTokenError(error: unknown): error is AuthTokenError {
+  return error instanceof Error && (error as AuthTokenError).isAuthTokenError === true;
+}
 
 class ApiClient {
   private token: string | null = null;
+  private onAuthError: (() => void) | null = null;
 
-  constructor() {
-    // Load token from localStorage on client side
-    if (typeof window !== 'undefined') {
-      this.token = localStorage.getItem('auth_token');
-    }
+  // Set callback for auth errors (called when token is invalid/expired)
+  setAuthErrorHandler(handler: () => void) {
+    this.onAuthError = handler;
   }
 
-  setAuthErrorHandler(handler: () => void) {
-    authErrorHandler = handler;
+  setToken(token: string | null) {
+    this.token = token;
+    if (token) {
+      localStorage.setItem('token', token);
+    } else {
+      localStorage.removeItem('token');
+    }
   }
 
   getToken(): string | null {
+    if (!this.token && typeof window !== 'undefined') {
+      this.token = localStorage.getItem('token');
+    }
     return this.token;
   }
 
-  private setToken(token: string) {
-    this.token = token;
-    if (typeof window !== 'undefined') {
-      localStorage.setItem('auth_token', token);
-    }
-  }
-
-  private clearToken() {
-    this.token = null;
-    if (typeof window !== 'undefined') {
-      localStorage.removeItem('auth_token');
-    }
-  }
-
-  private async request<T>(
-    path: string,
+  private async fetch<T>(
+    endpoint: string,
     options: RequestInit = {}
   ): Promise<T> {
+    const token = this.getToken();
     const headers: Record<string, string> = {
       'Content-Type': 'application/json',
-      ...(options.headers as Record<string, string>),
     };
 
-    if (this.token) {
-      headers['Authorization'] = `Bearer ${this.token}`;
+    if (token) {
+      headers['Authorization'] = `Bearer ${token}`;
     }
 
-    const response = await fetch(`${API_BASE}${path}`, {
+    const response = await fetch(`${API_BASE}${endpoint}`, {
       ...options,
-      headers,
+      headers: {
+        ...headers,
+        ...(options.headers as Record<string, string>),
+      },
     });
 
     if (!response.ok) {
-      // Handle auth errors (401, 403)
+      const error = await response.json().catch(() => ({ detail: 'Unknown error' }));
+      const errorMessage = error.detail || `HTTP ${response.status}`;
+
+      // Check for Beyond auth required header
+      const beyondAuthRequired = response.headers.get('X-Beyond-Auth-Required');
+      if (response.status === 401 && beyondAuthRequired === 'true') {
+        const beyondError = new Error('Beyond verification required');
+        (beyondError as BeyondAuthError).isBeyondAuthRequired = true;
+        throw beyondError;
+      }
+
+      // Check for invalid/expired token errors
       if (response.status === 401 || response.status === 403) {
-        this.clearToken();
-        if (authErrorHandler) {
-          authErrorHandler();
+        const isTokenError =
+          errorMessage.toLowerCase().includes('invalid') ||
+          errorMessage.toLowerCase().includes('expired') ||
+          errorMessage.toLowerCase().includes('token') ||
+          errorMessage.toLowerCase().includes('not authenticated') ||
+          errorMessage.toLowerCase().includes('could not validate');
+
+        if (isTokenError) {
+          // Clear token and trigger auth error handler
+          this.setToken(null);
+          if (this.onAuthError) {
+            this.onAuthError();
+          }
+          const tokenError = new Error(errorMessage);
+          (tokenError as AuthTokenError).isAuthTokenError = true;
+          throw tokenError;
         }
       }
 
-      const error = await response.json().catch(() => ({ detail: 'Request failed' }));
-      throw new Error(error.detail || 'Request failed');
+      throw new Error(errorMessage);
     }
 
     return response.json();
   }
 
-  // Auth methods
-  async login(data: LoginRequest): Promise<{ access_token: string }> {
-    const result = await this.request<{ access_token: string }>('/auth/login', {
+  // Auth
+  async login(data: LoginRequest): Promise<AuthTokens> {
+    const response = await this.fetch<{ tokens: AuthTokens }>('/auth/login', {
       method: 'POST',
       body: JSON.stringify(data),
     });
-    this.setToken(result.access_token);
-    return result;
+    this.setToken(response.tokens.access_token);
+    return response.tokens;
   }
 
-  async register(data: RegisterRequest): Promise<{ access_token: string }> {
-    const result = await this.request<{ access_token: string }>('/auth/register', {
+  async register(data: RegisterRequest): Promise<AuthTokens> {
+    const response = await this.fetch<{ tokens: AuthTokens }>('/auth/register', {
       method: 'POST',
       body: JSON.stringify(data),
     });
-    this.setToken(result.access_token);
-    return result;
+    this.setToken(response.tokens.access_token);
+    return response.tokens;
   }
 
-  async getMe(): Promise<{ id: string; phone: string; name?: string }> {
-    return this.request('/auth/me');
+  async loginByPhone(phone: string): Promise<AuthTokens> {
+    const response = await this.fetch<{ tokens: AuthTokens }>('/auth/login/phone', {
+      method: 'POST',
+      body: JSON.stringify({ phone }),
+    });
+    this.setToken(response.tokens.access_token);
+    return response.tokens;
+  }
+
+  async refreshToken(): Promise<AuthTokens> {
+    const tokens = await this.fetch<AuthTokens>('/auth/refresh', {
+      method: 'POST',
+    });
+    this.setToken(tokens.access_token);
+    return tokens;
+  }
+
+  async getMe(): Promise<User> {
+    return this.fetch<User>('/auth/me');
   }
 
   logout() {
-    this.clearToken();
+    this.setToken(null);
   }
 
-  // Beyond Token methods
-  async checkBeyondToken(): Promise<{ valid: boolean; phone?: string; expires_at?: number }> {
-    return this.request('/auth/beyond/status');
-  }
-
-  async sendSmsCode(phone: string): Promise<{ message: string }> {
-    return this.request('/auth/beyond/send-sms', {
+  // Beyond API Authentication (SMS verification)
+  async requestBeyondSMS(phone: string): Promise<{ session_info: string }> {
+    return this.fetch('/auth/beyond/request-sms', {
       method: 'POST',
       body: JSON.stringify({ phone }),
     });
   }
 
-  async verifySmsCode(phone: string, code: string): Promise<{ success: boolean }> {
-    return this.request('/auth/beyond/verify-sms', {
+  async verifyBeyondSMS(phone: string, code: string, sessionInfo: string): Promise<{ success: boolean }> {
+    return this.fetch('/auth/beyond/verify-sms', {
       method: 'POST',
-      body: JSON.stringify({ phone, code }),
+      body: JSON.stringify({ phone, code, session_info: sessionInfo }),
     });
   }
 
-  // Members methods
-  async getMembers(sport: string): Promise<{ members: any[]; total: number }> {
-    return this.request(`/members?sport=${sport}`);
+  async checkBeyondToken(): Promise<{ valid: boolean; phone?: string }> {
+    return this.fetch('/auth/beyond/status');
   }
 
-  async getMember(id: number, sport: string): Promise<any> {
-    return this.request(`/members/${id}?sport=${sport}`);
+  // Members
+  async getMembers(sport: string = 'surf'): Promise<{ members: Member[]; total: number }> {
+    return this.fetch(`/members?sport=${sport}`);
   }
 
-  async getMemberPreferences(id: number, sport: string): Promise<MemberPreferences | null> {
-    return this.request(`/members/${id}/preferences?sport=${sport}`);
+  async getMember(id: number, sport: string = 'surf'): Promise<Member> {
+    return this.fetch(`/members/${id}?sport=${sport}`);
+  }
+
+  async getMemberPreferences(id: number, sport: string = 'surf'): Promise<MemberPreferences> {
+    return this.fetch(`/members/${id}/preferences?sport=${sport}`);
   }
 
   async updateMemberPreferences(
     id: number,
     preferences: Partial<MemberPreferences>,
-    sport: string
+    sport: string = 'surf'
   ): Promise<MemberPreferences> {
-    return this.request(`/members/${id}/preferences?sport=${sport}`, {
+    return this.fetch(`/members/${id}/preferences?sport=${sport}`, {
       method: 'PUT',
       body: JSON.stringify(preferences),
     });
   }
 
-  async deleteMemberPreferences(id: number, sport: string): Promise<void> {
-    return this.request(`/members/${id}/preferences?sport=${sport}`, {
+  async deleteMemberPreferences(id: number, sport: string = 'surf'): Promise<void> {
+    await this.fetch(`/members/${id}/preferences?sport=${sport}`, {
       method: 'DELETE',
     });
   }
 
-  // Availability methods
-  async getAvailability(sport: string): Promise<any> {
-    return this.request(`/availability?sport=${sport}`);
+  // Availability
+  async getAvailability(sport: string = 'surf'): Promise<AvailabilityResponse> {
+    return this.fetch(`/availability?sport=${sport}`);
   }
 
-  async scanAvailability(sport: string): Promise<any> {
-    return this.request(`/availability/scan?sport=${sport}`, {
+  async scanAvailability(sport: string = 'surf'): Promise<AvailabilityResponse> {
+    return this.fetch(`/availability/scan?sport=${sport}`, {
       method: 'POST',
     });
   }
 
-  async getAvailableDates(sport: string, level?: string, waveSide?: string): Promise<any> {
+  async getAvailableDates(
+    sport: string = 'surf',
+    level?: string,
+    waveSide?: string
+  ): Promise<{ dates: string[] }> {
     const params = new URLSearchParams({ sport });
-    if (level) params.append('level', level);
-    if (waveSide) params.append('wave_side', waveSide);
-    return this.request(`/availability/dates?${params}`);
+    if (level) params.set('level', level);
+    if (waveSide) params.set('wave_side', waveSide);
+    return this.fetch(`/availability/dates?${params}`);
   }
 
-  // Bookings methods
-  async getBookings(sport: string, activeOnly: boolean = true): Promise<{ bookings: any[]; total: number }> {
-    return this.request(`/bookings?sport=${sport}&active_only=${activeOnly}`);
+  // Bookings
+  async getBookings(sport: string = 'surf', activeOnly: boolean = true): Promise<BookingsListResponse> {
+    return this.fetch(`/bookings?sport=${sport}&active_only=${activeOnly}`);
   }
 
-  async getBooking(voucherCode: string, sport: string): Promise<any> {
-    return this.request(`/bookings/${voucherCode}?sport=${sport}`);
+  async getBooking(voucherCode: string, sport: string = 'surf'): Promise<Booking> {
+    return this.fetch(`/bookings/${voucherCode}?sport=${sport}`);
   }
 
-  async createBooking(data: CreateBookingRequest, sport: string): Promise<any> {
-    return this.request(`/bookings?sport=${sport}`, {
+  async createBooking(data: CreateBookingRequest, sport: string = 'surf'): Promise<Booking> {
+    return this.fetch(`/bookings?sport=${sport}`, {
       method: 'POST',
       body: JSON.stringify(data),
     });
   }
 
-  async cancelBooking(voucherCode: string, sport: string): Promise<void> {
-    return this.request(`/bookings/${voucherCode}?sport=${sport}`, {
+  async cancelBooking(voucherCode: string, sport: string = 'surf'): Promise<void> {
+    await this.fetch(`/bookings/${voucherCode}?sport=${sport}`, {
       method: 'DELETE',
     });
   }
 
-  async swapBooking(voucherCode: string, newMemberId: number, sport: string): Promise<any> {
-    return this.request(`/bookings/${voucherCode}/swap?sport=${sport}`, {
+  async swapBooking(
+    voucherCode: string,
+    newMemberId: number,
+    sport: string = 'surf'
+  ): Promise<{ new_voucher: string; new_access_code: string }> {
+    return this.fetch(`/bookings/${voucherCode}/swap?sport=${sport}`, {
       method: 'POST',
       body: JSON.stringify({ new_member_id: newMemberId }),
     });
   }
 
-  // Monitor methods
-  async startMonitor(data: StartMonitorRequest, sport: string): Promise<{ monitor_id: string }> {
-    return this.request(`/monitor/start?sport=${sport}`, {
+  // Monitor
+  async startMonitor(data: StartMonitorRequest, sport: string = 'surf'): Promise<{ monitor_id: string }> {
+    return this.fetch(`/monitor/start?sport=${sport}`, {
       method: 'POST',
       body: JSON.stringify(data),
     });
   }
 
-  async getMonitorStatus(monitorId: string): Promise<any> {
-    return this.request(`/monitor/${monitorId}/status`);
+  async getMonitorStatus(monitorId: string): Promise<MonitorStatus> {
+    return this.fetch(`/monitor/${monitorId}/status`);
   }
 
   async stopMonitor(monitorId: string): Promise<void> {
-    return this.request(`/monitor/${monitorId}/stop`, {
+    await this.fetch(`/monitor/${monitorId}/stop`, {
       method: 'POST',
     });
   }
 
-  async listMonitors(): Promise<{ monitors: any[]; total: number }> {
-    return this.request('/monitor');
+  async listMonitors(): Promise<{ monitors: Record<string, MonitorStatus>; total: number }> {
+    return this.fetch('/monitor');
   }
 
-  // Session search methods
-  async getSessionOptions(): Promise<{
-    levels: string[];
-    wave_sides: string[];
-    hours_by_level: Record<string, string[]>;
-  }> {
-    return this.request('/monitor/session-options');
+  // Sports
+  async getSports(): Promise<{ sports: Record<string, SportConfig> }> {
+    return this.fetch('/sports');
   }
 
-  async startSessionSearch(data: SessionSearchRequest, sport: string): Promise<{
-    monitor_id: string;
-    status: string;
-    message: string;
-    member_id: number;
-    member_name: string;
-    session: {
-      level: string;
-      wave_side: string;
-      date: string;
-      hour: string;
-    };
-  }> {
-    return this.request(`/monitor/search-session?sport=${sport}`, {
-      method: 'POST',
-      body: JSON.stringify(data),
-    });
+  async getSport(name: string): Promise<SportConfig> {
+    return this.fetch(`/sports/${name}`);
   }
 
-  // WebSocket connections
-  connectMonitorWs(monitorId: string, onMessage: (data: any) => void): WebSocket {
-    const wsBase = API_BASE.replace(/^http/, 'ws');
-    const ws = new WebSocket(`${wsBase}/monitor/ws/${monitorId}`);
+  // WebSocket for Monitor
+  connectMonitorWs(monitorId: string, onMessage: (data: unknown) => void): WebSocket {
+    // Connect directly to API server for WebSocket (Next.js rewrites don't support WS)
+    const wsUrl = API_BASE.replace('http://', 'ws://').replace('https://', 'wss://');
+    const ws = new WebSocket(`${wsUrl}/monitor/ws/${monitorId}`);
 
     ws.onmessage = (event) => {
       try {
         const data = JSON.parse(event.data);
         onMessage(data);
-      } catch (e) {
-        console.error('Failed to parse WebSocket message:', e);
+      } catch {
+        console.error('Failed to parse WebSocket message');
       }
     };
 
     return ws;
   }
 
-  connectSessionSearchWs(monitorId: string, onMessage: (data: any) => void): WebSocket {
-    const wsBase = API_BASE.replace(/^http/, 'ws');
-    const ws = new WebSocket(`${wsBase}/monitor/ws/${monitorId}/session`);
+  // Session Search
+  async getSessionOptions(): Promise<SessionOptionsResponse> {
+    return this.fetch('/monitor/session-options');
+  }
+
+  async startSessionSearch(
+    data: SessionSearchRequest,
+    sport: string = 'surf'
+  ): Promise<{
+    monitor_id: string;
+    status: string;
+    message: string;
+    member_id: number;
+    member_name: string;
+    session: { level: string; wave_side: string; date: string; hour: string };
+  }> {
+    return this.fetch(`/monitor/search-session?sport=${sport}`, {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  }
+
+  connectSessionSearchWs(monitorId: string, onMessage: (data: unknown) => void): WebSocket {
+    const wsUrl = API_BASE.replace('http://', 'ws://').replace('https://', 'wss://');
+    const ws = new WebSocket(`${wsUrl}/monitor/ws/${monitorId}/session`);
 
     ws.onmessage = (event) => {
       try {
         const data = JSON.parse(event.data);
         onMessage(data);
-      } catch (e) {
-        console.error('Failed to parse WebSocket message:', e);
+      } catch {
+        console.error('Failed to parse WebSocket message');
       }
     };
 

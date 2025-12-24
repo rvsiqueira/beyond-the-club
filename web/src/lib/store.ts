@@ -1,18 +1,11 @@
-'use client';
-
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
-
-interface User {
-  id: string;
-  phone: string;
-  name?: string;
-}
+import type { User } from '@/types';
 
 interface AuthState {
   user: User | null;
-  sport: string;
   isAuthenticated: boolean;
+  sport: string;
   setUser: (user: User | null) => void;
   setSport: (sport: string) => void;
   logout: () => void;
@@ -22,30 +15,27 @@ export const useAuthStore = create<AuthState>()(
   persist(
     (set) => ({
       user: null,
-      sport: 'surf',
       isAuthenticated: false,
-
-      setUser: (user) =>
-        set({
-          user,
-          isAuthenticated: !!user,
-        }),
-
+      sport: 'surf',
+      setUser: (user) => set({ user, isAuthenticated: !!user }),
       setSport: (sport) => set({ sport }),
-
-      logout: () =>
-        set({
-          user: null,
-          isAuthenticated: false,
-        }),
+      logout: () => set({ user: null, isAuthenticated: false }),
     }),
     {
       name: 'auth-storage',
-      partialize: (state) => ({
-        user: state.user,
-        sport: state.sport,
-        isAuthenticated: state.isAuthenticated,
-      }),
+      partialize: (state) => ({ sport: state.sport }),
     }
   )
 );
+
+interface UIState {
+  sidebarOpen: boolean;
+  toggleSidebar: () => void;
+  setSidebarOpen: (open: boolean) => void;
+}
+
+export const useUIStore = create<UIState>((set) => ({
+  sidebarOpen: true,
+  toggleSidebar: () => set((state) => ({ sidebarOpen: !state.sidebarOpen })),
+  setSidebarOpen: (open) => set({ sidebarOpen: open }),
+}));
