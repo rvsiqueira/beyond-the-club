@@ -148,6 +148,15 @@ class MonitorService(BaseService):
                         )
 
                         if slot:
+                            # Validate that the slot matches the requested filters
+                            if target_dates and slot.date not in target_dates:
+                                status_update(f"  Slot com data diferente: {slot.date} (esperado: {target_dates})", "warning")
+                                slot = None
+                            elif prefs.target_hours and slot.interval not in prefs.target_hours:
+                                status_update(f"  Slot com horário diferente: {slot.interval} (esperado: {prefs.target_hours})", "warning")
+                                slot = None
+
+                        if slot:
                             status_update(f"  Slot encontrado! {slot.date} {slot.interval} ({slot.combo_key})")
 
                             try:
@@ -180,7 +189,7 @@ class MonitorService(BaseService):
                                 else:
                                     status_update(f"  Erro ao agendar: {e}", "error")
                                     # Continue to next preference
-                        else:
+                        if not slot:
                             status_update(f"  Nenhum slot disponivel para {combo_key}")
 
                     except Exception as e:
