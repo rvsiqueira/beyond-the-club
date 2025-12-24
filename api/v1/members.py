@@ -248,8 +248,6 @@ async def set_member_preferences(
             attrs["court"] = s.court
 
         sessions.append(SessionPreference(
-            level=s.level,
-            wave_side=s.wave_side,
             attributes=attrs
         ))
 

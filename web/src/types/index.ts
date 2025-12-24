@@ -39,7 +39,9 @@ export interface Member {
 export interface SessionPreference {
   level: string;
   wave_side: string;
-  priority: number;
+  priority?: number;
+  target_days?: string[];
+  target_hours?: string[];
 }
 
 export interface MemberPreferences {

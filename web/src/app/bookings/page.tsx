@@ -2,9 +2,9 @@
 
 import { useState } from 'react';
 import Link from 'next/link';
-import { Ticket, Plus, X, RefreshCw, Copy, Check, Clock, Waves } from 'lucide-react';
+import { Ticket, Plus, X, RefreshCw, Copy, Check, Clock, Waves, GraduationCap, MoreVertical } from 'lucide-react';
 import { MainLayout } from '@/components/layout';
-import { Card, CardContent, Button, Badge } from '@/components/ui';
+import { Button, Badge } from '@/components/ui';
 import { useBookings } from '@/hooks';
 import { formatDate } from '@/lib/utils';
 import { BookingActionModal } from '@/components/BookingActionModal';
@@ -21,6 +21,21 @@ interface Booking {
   wave_side?: string;
   status: string;
 }
+
+// Wave images by level - fixed per level for quick visual identification
+// Beginner: sunrise/sunset calm waves
+// Intermediate: turquoise/green water
+// Advanced: strong blue ocean waves
+const getWaveBackground = (level?: string) => {
+  if (!level) return '/wave-levels/advanced-1.jpg';
+  if (level.startsWith('Iniciante')) {
+    return '/wave-levels/beginner-1.jpg';
+  } else if (level.startsWith('Intermediario')) {
+    return '/wave-levels/intermediate-1.jpg';
+  } else {
+    return '/wave-levels/advanced-1.jpg';
+  }
+};
 
 export default function BookingsPage() {
   const { data, isLoading, error, refetch } = useBookings();
@@ -103,103 +118,108 @@ export default function BookingsPage() {
           </Link>
         </div>
       ) : (
-        <div className="space-y-4">
-          {data?.bookings.map((booking) => (
-            <Card key={booking.voucher_code}>
-              <CardContent className="py-4">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-4">
-                    <div className="w-12 h-12 bg-primary-100 rounded-full flex items-center justify-center">
-                      <Ticket className="h-6 w-6 text-primary-600" />
-                    </div>
-                    <div>
-                      <h3 className="font-semibold text-gray-900 uppercase">
-                        {booking.member_name}
-                      </h3>
-                      <div className="flex items-center gap-2 text-sm text-gray-500 mt-1">
-                        <span>{formatDate(booking.date)}</span>
-                        <span>-</span>
-                        <span className="flex items-center gap-1">
-                          <Clock className="h-3.5 w-3.5" />
-                          {booking.interval}
-                        </span>
-                      </div>
-                      <div className="flex gap-2 mt-2">
-                        {booking.level && (
-                          <Badge variant="info" className="text-xs">
-                            {formatLevel(booking.level)}
-                          </Badge>
-                        )}
-                        {booking.wave_side && (
-                          <Badge variant="default" className="text-xs flex items-center gap-1">
-                            <Waves className="h-3 w-3" />
-                            {formatWaveSide(booking.wave_side)}
-                          </Badge>
-                        )}
-                      </div>
+        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
+          {data?.bookings.map((booking) => {
+            const daysUntil = Math.ceil((new Date(booking.date).getTime() - new Date().setHours(0,0,0,0)) / (1000 * 60 * 60 * 24));
+            const daysLabel = daysUntil === 0 ? 'Hoje' : daysUntil === 1 ? 'Amanhã' : `Em ${daysUntil} dias`;
+
+            return (
+              <div
+                key={booking.voucher_code}
+                onClick={() => handleOpenActionModal(booking)}
+                className="relative rounded-2xl overflow-hidden shadow-lg group cursor-pointer transition-all duration-300 hover:shadow-xl hover:-translate-y-1"
+              >
+                {/* Background Image */}
+                <div
+                  className="absolute inset-0 bg-cover bg-center transition-transform duration-500 group-hover:scale-110"
+                  style={{ backgroundImage: `url(${getWaveBackground(booking.level)})` }}
+                />
+                {/* Gradient Overlay */}
+                <div className="absolute inset-0 bg-gradient-to-t from-black/90 via-black/50 to-black/30" />
+
+                {/* Content */}
+                <div className="relative p-5 min-h-[220px] flex flex-col justify-between">
+                  {/* Top Row */}
+                  <div className="flex items-start justify-between">
+                    {/* Days Badge */}
+                    <span className="px-3 py-1.5 bg-white/95 backdrop-blur-sm rounded-full text-xs font-bold text-gray-800 shadow-sm">
+                      {daysLabel}
+                    </span>
+
+                    {/* Cancel indicator */}
+                    <div className="p-2 bg-white/20 backdrop-blur-sm rounded-full">
+                      <X className="h-4 w-4 text-white" />
                     </div>
                   </div>
 
-                  <div className="flex items-center gap-6">
-                    {/* Voucher & Access Code */}
-                    <div className="text-right">
-                      <div className="flex items-center gap-2">
-                        <span className="text-sm text-gray-500">Voucher:</span>
-                        <code className="bg-gray-100 px-2 py-1 rounded text-sm font-mono">
-                          {booking.voucher_code}
-                        </code>
-                        <button
-                          onClick={() =>
-                            copyToClipboard(booking.voucher_code, booking.voucher_code)
-                          }
-                          className="p-1 hover:bg-gray-100 rounded"
-                        >
-                          {copiedVoucher === booking.voucher_code ? (
-                            <Check className="h-4 w-4 text-green-500" />
-                          ) : (
-                            <Copy className="h-4 w-4 text-gray-400" />
-                          )}
-                        </button>
-                      </div>
-                      <div className="flex items-center gap-2 mt-1">
-                        <span className="text-sm text-gray-500">Acesso:</span>
-                        <code className="bg-gray-100 px-2 py-1 rounded text-sm font-mono">
-                          {booking.access_code}
-                        </code>
-                        <button
-                          onClick={() =>
-                            copyToClipboard(
-                              booking.access_code,
-                              booking.voucher_code + '-access'
-                            )
-                          }
-                          className="p-1 hover:bg-gray-100 rounded"
-                        >
-                          {copiedVoucher === booking.voucher_code + '-access' ? (
-                            <Check className="h-4 w-4 text-green-500" />
-                          ) : (
-                            <Copy className="h-4 w-4 text-gray-400" />
-                          )}
-                        </button>
-                      </div>
+                  {/* Bottom Content */}
+                  <div>
+                    {/* Date & Time */}
+                    <p className="text-white/80 text-sm mb-1">
+                      {formatDate(booking.date)} · {booking.interval}
+                    </p>
+
+                    {/* Member Name */}
+                    <h3 className="text-white font-bold text-xl mb-3 uppercase tracking-wide">
+                      {booking.member_name}
+                    </h3>
+
+                    {/* Tags */}
+                    <div className="flex flex-wrap gap-2 mb-4">
+                      {booking.level && (
+                        <span className="px-2.5 py-1 bg-white/20 backdrop-blur-sm rounded-full text-xs font-medium text-white flex items-center gap-1">
+                          <GraduationCap className="h-3 w-3" />
+                          {formatLevel(booking.level)}
+                        </span>
+                      )}
+                      {booking.wave_side && (
+                        <span className="px-2.5 py-1 bg-white/20 backdrop-blur-sm rounded-full text-xs font-medium text-white flex items-center gap-1">
+                          <Waves className="h-3 w-3" />
+                          {formatWaveSide(booking.wave_side)}
+                        </span>
+                      )}
                     </div>
 
-                    {/* Status & Actions */}
-                    <div className="flex items-center gap-3">
-                      <Badge variant="success">{booking.status}</Badge>
-                      <Button
-                        variant="danger"
-                        size="sm"
-                        onClick={() => handleOpenActionModal(booking)}
-                      >
-                        <X className="h-4 w-4" />
-                      </Button>
+                    {/* Codes */}
+                    <div className="flex items-center gap-3 pt-3 border-t border-white/20">
+                      <div className="flex-1">
+                        <p className="text-white/60 text-[10px] uppercase tracking-wider mb-0.5">Voucher</p>
+                        <div className="flex items-center gap-1">
+                          <code className="text-white text-xs font-mono font-medium">{booking.voucher_code}</code>
+                          <button
+                            onClick={(e) => { e.stopPropagation(); copyToClipboard(booking.voucher_code, booking.voucher_code); }}
+                            className="p-1 hover:bg-white/20 rounded transition-colors"
+                          >
+                            {copiedVoucher === booking.voucher_code ? (
+                              <Check className="h-3 w-3 text-green-400" />
+                            ) : (
+                              <Copy className="h-3 w-3 text-white/60" />
+                            )}
+                          </button>
+                        </div>
+                      </div>
+                      <div className="flex-1">
+                        <p className="text-white/60 text-[10px] uppercase tracking-wider mb-0.5">Acesso</p>
+                        <div className="flex items-center gap-1">
+                          <code className="text-white text-xs font-mono font-medium">{booking.access_code}</code>
+                          <button
+                            onClick={(e) => { e.stopPropagation(); copyToClipboard(booking.access_code, booking.voucher_code + '-access'); }}
+                            className="p-1 hover:bg-white/20 rounded transition-colors"
+                          >
+                            {copiedVoucher === booking.voucher_code + '-access' ? (
+                              <Check className="h-3 w-3 text-green-400" />
+                            ) : (
+                              <Copy className="h-3 w-3 text-white/60" />
+                            )}
+                          </button>
+                        </div>
+                      </div>
                     </div>
                   </div>
                 </div>
-              </CardContent>
-            </Card>
-          ))}
+              </div>
+            );
+          })}
         </div>
       )}
 

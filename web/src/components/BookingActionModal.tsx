@@ -1,10 +1,11 @@
 'use client';
 
 import { useState } from 'react';
-import { AlertTriangle, X, RefreshCw, Users } from 'lucide-react';
+import { AlertTriangle, X, RefreshCw, Users, GraduationCap, Waves } from 'lucide-react';
 import { Modal } from '@/components/ui/Modal';
-import { Button, Badge } from '@/components/ui';
+import { Button } from '@/components/ui';
 import { useMembers, useSwapBooking, useCancelBooking } from '@/hooks';
+import { formatDate } from '@/lib/utils';
 
 interface Booking {
   voucher_code: string;
@@ -15,6 +16,38 @@ interface Booking {
   level?: string;
   wave_side?: string;
 }
+
+const SURF_BACKGROUNDS = [
+  '/surf-backgrounds/surf-1.jpg',
+  '/surf-backgrounds/surf-2.jpg',
+  '/surf-backgrounds/surf-3.jpg',
+  '/surf-backgrounds/surf-4.jpg',
+  '/surf-backgrounds/surf-5.jpg',
+  '/surf-backgrounds/surf-6.jpg',
+  '/surf-backgrounds/surf-7.jpg',
+  '/surf-backgrounds/surf-8.jpg',
+  '/surf-backgrounds/surf-9.jpg',
+  '/surf-backgrounds/surf-10.jpg',
+];
+
+const getBookingBackground = (voucherCode: string) => {
+  let hash = 0;
+  for (let i = 0; i < voucherCode.length; i++) {
+    hash = ((hash << 5) - hash) + voucherCode.charCodeAt(i);
+    hash = hash & hash;
+  }
+  return SURF_BACKGROUNDS[Math.abs(hash) % SURF_BACKGROUNDS.length];
+};
+
+const formatLevel = (level?: string) => {
+  if (!level) return null;
+  return level.replace('Iniciante', 'Iniciante ').replace('Intermediario', 'Intermediário ').replace('Avançado', 'Avançado ').replace('Avancado', 'Avançado ').trim();
+};
+
+const formatWaveSide = (waveSide?: string) => {
+  if (!waveSide) return null;
+  return waveSide.replace('Lado_', '').replace('esquerdo', 'Esquerda').replace('direito', 'Direita');
+};
 
 interface BookingActionModalProps {
   isOpen: boolean;
@@ -85,19 +118,36 @@ export function BookingActionModal({
       title={action === 'choose' ? 'Gerenciar Agendamento' : action === 'cancel' ? 'Cancelar Agendamento' : 'Trocar Membro'}
     >
       <div className="space-y-6">
-        {/* Booking Info */}
-        <div className="p-4 bg-gray-50 rounded-lg">
-          <div className="flex items-center justify-between">
-            <div>
-              <h4 className="font-semibold text-gray-900">{booking.member_name}</h4>
-              <p className="text-sm text-gray-500">
-                {booking.date} - {booking.interval}
-              </p>
-            </div>
-            <div className="flex gap-2">
-              {booking.level && <Badge variant="info">{booking.level}</Badge>}
+        {/* Booking Card with Image */}
+        <div className="relative h-28 rounded-xl overflow-hidden">
+          {/* Background Image */}
+          <div
+            className="absolute inset-0 bg-cover bg-center"
+            style={{ backgroundImage: `url(${getBookingBackground(booking.voucher_code)})` }}
+          />
+          {/* Gradient Overlay */}
+          <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/40 to-black/20" />
+
+          {/* Content */}
+          <div className="relative h-full p-4 flex flex-col justify-end">
+            <p className="text-white/80 text-sm">
+              {formatDate(booking.date)} · {booking.interval}
+            </p>
+            <h4 className="text-white font-bold text-lg uppercase">
+              {booking.member_name}
+            </h4>
+            <div className="flex gap-2 mt-1">
+              {booking.level && (
+                <span className="px-2 py-0.5 bg-white/20 backdrop-blur-sm rounded-full text-xs font-medium text-white flex items-center gap-1">
+                  <GraduationCap className="h-3 w-3" />
+                  {formatLevel(booking.level)}
+                </span>
+              )}
               {booking.wave_side && (
-                <Badge variant="default">{booking.wave_side.replace('Lado_', '')}</Badge>
+                <span className="px-2 py-0.5 bg-white/20 backdrop-blur-sm rounded-full text-xs font-medium text-white flex items-center gap-1">
+                  <Waves className="h-3 w-3" />
+                  {formatWaveSide(booking.wave_side)}
+                </span>
               )}
             </div>
           </div>

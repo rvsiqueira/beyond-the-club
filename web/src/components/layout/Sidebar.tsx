@@ -25,6 +25,18 @@ const navigation = [
   { name: 'Monitor', href: '/monitor', icon: Radio },
 ];
 
+// Beyond The Club brand colors for the divider
+function BrandDivider() {
+  return (
+    <div className="flex h-1.5 w-full">
+      <div className="flex-1 bg-[#1a2744]" />
+      <div className="flex-1 bg-[#8b4d5c]" />
+      <div className="flex-1 bg-[#d4876c]" />
+      <div className="flex-1 bg-[#a8c4b8]" />
+    </div>
+  );
+}
+
 export function Sidebar() {
   const pathname = usePathname();
   const { sidebarOpen, toggleSidebar } = useUIStore();
@@ -38,7 +50,7 @@ export function Sidebar() {
       )}
     >
       {/* Logo */}
-      <div className="flex h-16 items-center justify-between px-4 border-b border-gray-800">
+      <div className="flex h-16 items-center justify-between px-4">
         <Link href="/dashboard" className="flex items-center gap-3">
           {sidebarOpen ? (
             <Image
@@ -70,6 +82,8 @@ export function Sidebar() {
           />
         </button>
       </div>
+      {/* Brand Divider */}
+      <BrandDivider />
 
       {/* Navigation */}
       <nav className="flex-1 px-3 py-4 space-y-1 overflow-y-auto">

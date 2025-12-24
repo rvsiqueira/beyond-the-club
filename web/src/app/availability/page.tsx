@@ -1,10 +1,14 @@
 'use client';
 
-import { useState, useMemo, useEffect, useCallback } from 'react';
-import { Calendar, RefreshCw, Clock, Waves, GraduationCap, ArrowLeft, ArrowRight } from 'lucide-react';
+import { useState, useMemo, useEffect, useCallback, Suspense } from 'react';
+import { useSearchParams } from 'next/navigation';
+import { Calendar, RefreshCw, Clock, Waves, GraduationCap, ArrowLeft, ArrowRight, Users } from 'lucide-react';
 import { MainLayout } from '@/components/layout';
 import { Button } from '@/components/ui';
 import { useAvailability, useScanAvailability } from '@/hooks';
+import { BatchBookingModal } from '@/components/BatchBookingModal';
+import { useQueryClient } from '@tanstack/react-query';
+import type { AvailableSlot } from '@/types';
 
 const LEVELS = [
   { value: 'Iniciante1', label: 'Iniciante 1', shortLabel: 'Ini 1', color: 'bg-emerald-100 text-emerald-700 border-emerald-300' },
@@ -20,17 +24,54 @@ const WAVE_SIDES = [
   { value: 'Lado_direito', label: 'Direita', icon: '→' },
 ];
 
+// Wave images by level - fixed per level for quick visual identification
+// Beginner: sunrise/sunset calm waves
+// Intermediate: turquoise/green water
+// Advanced: strong blue ocean waves
+const getWaveBackground = (level: string) => {
+  if (level.startsWith('Iniciante')) {
+    return '/wave-levels/beginner-1.jpg';
+  } else if (level.startsWith('Intermediario')) {
+    return '/wave-levels/intermediate-1.jpg';
+  } else {
+    return '/wave-levels/advanced-1.jpg';
+  }
+};
+
 const REFRESH_COOLDOWN_SECONDS = 60;
 
-export default function AvailabilityPage() {
+function AvailabilityContent() {
   const { data, isLoading, error } = useAvailability();
   const scanMutation = useScanAvailability();
+  const queryClient = useQueryClient();
 
-  const [levelFilter, setLevelFilter] = useState('');
+  const searchParams = useSearchParams();
+  const initialDate = searchParams.get('date');
+  const initialLevel = searchParams.get('level');
+
+  const [levelFilter, setLevelFilter] = useState(initialLevel || '');
   const [waveSideFilter, setWaveSideFilter] = useState('');
-  const [dateFilter, setDateFilter] = useState('');
+  const [dateFilter, setDateFilter] = useState(initialDate || '');
   const [refreshCooldown, setRefreshCooldown] = useState(0);
   const [lastRefreshTime, setLastRefreshTime] = useState<number | null>(null);
+  const [initialFiltersApplied, setInitialFiltersApplied] = useState(false);
+
+  // Batch booking modal state
+  const [selectedSlot, setSelectedSlot] = useState<AvailableSlot | null>(null);
+  const [showBookingModal, setShowBookingModal] = useState(false);
+
+  const handleSlotClick = (slot: AvailableSlot) => {
+    if (slot.available > 0) {
+      setSelectedSlot(slot);
+      setShowBookingModal(true);
+    }
+  };
+
+  const handleBookingSuccess = () => {
+    queryClient.invalidateQueries({ queryKey: ['availability'] });
+    queryClient.invalidateQueries({ queryKey: ['members'] });
+    queryClient.invalidateQueries({ queryKey: ['bookings'] });
+  };
 
   // Cooldown timer for refresh button
   useEffect(() => {
@@ -75,12 +116,18 @@ export default function AvailabilityPage() {
     return uniqueDates.sort();
   }, [data]);
 
-  // Auto-select first date if none selected
+  // Auto-select date: use URL param if valid, otherwise first available date
   useEffect(() => {
-    if (dates.length > 0 && !dateFilter) {
-      setDateFilter(dates[0]);
+    if (dates.length > 0 && !initialFiltersApplied) {
+      // If URL has a valid date param, use it; otherwise use first available
+      if (initialDate && dates.includes(initialDate)) {
+        setDateFilter(initialDate);
+      } else if (!dateFilter) {
+        setDateFilter(dates[0]);
+      }
+      setInitialFiltersApplied(true);
     }
-  }, [dates, dateFilter]);
+  }, [dates, dateFilter, initialDate, initialFiltersApplied]);
 
   // Filter slots
   const filteredSlots = useMemo(() => {
@@ -322,9 +369,9 @@ export default function AvailabilityPage() {
 
       {/* Loading */}
       {isLoading ? (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
           {[1, 2, 3, 4, 5, 6, 7, 8].map((i) => (
-            <div key={i} className="animate-pulse h-32 bg-gray-100 rounded-xl" />
+            <div key={i} className="animate-pulse h-[180px] bg-gray-200 rounded-2xl" />
           ))}
         </div>
       ) : (
@@ -342,53 +389,90 @@ export default function AvailabilityPage() {
               </button>
             </div>
           ) : (
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
               {Object.entries(groupedByInterval)
                 .sort(([a], [b]) => a.localeCompare(b))
                 .map(([interval, slots]) => (
                   slots.map((slot, idx) => {
                     const levelConfig = LEVELS.find(l => l.value === slot.level);
                     const hasVacancy = slot.available > 0;
+                    const waveImage = getWaveBackground(slot.level);
 
                     return (
                       <div
                         key={`${slot.date}-${slot.interval}-${slot.level}-${slot.wave_side}-${idx}`}
-                        className={`relative p-4 rounded-xl border-2 transition-all hover:shadow-md ${
+                        onClick={() => handleSlotClick(slot)}
+                        className={`relative rounded-2xl overflow-hidden shadow-lg group transition-all duration-300 ${
                           hasVacancy
-                            ? 'bg-white border-green-200 hover:border-green-300'
-                            : 'bg-gray-50 border-gray-200 opacity-60'
+                            ? 'cursor-pointer hover:shadow-xl hover:-translate-y-1'
+                            : 'opacity-50 cursor-not-allowed grayscale'
                         }`}
                       >
-                        {/* Time Header */}
-                        <div className="flex items-center justify-between mb-3">
-                          <div className="flex items-center gap-2">
-                            <div className={`p-2 rounded-lg ${hasVacancy ? 'bg-green-100' : 'bg-gray-200'}`}>
-                              <Clock className={`h-4 w-4 ${hasVacancy ? 'text-green-600' : 'text-gray-400'}`} />
+                        {/* Background Image */}
+                        <div
+                          className="absolute inset-0 bg-cover bg-center transition-transform duration-500 group-hover:scale-110"
+                          style={{ backgroundImage: `url(${waveImage})` }}
+                        />
+                        {/* Gradient Overlay */}
+                        <div className="absolute inset-0 bg-gradient-to-t from-black/85 via-black/40 to-black/20" />
+
+                        {/* Content */}
+                        <div className="relative p-4 min-h-[180px] flex flex-col justify-between">
+                          {/* Top Row - Time and Vacancy */}
+                          <div className="flex items-start justify-between">
+                            {/* Time Badge */}
+                            <div className="flex items-center gap-2">
+                              <div className="p-2 bg-white/20 backdrop-blur-sm rounded-lg">
+                                <Clock className="h-4 w-4 text-white" />
+                              </div>
+                              <span className="text-2xl font-bold text-white drop-shadow-lg">{slot.interval}</span>
                             </div>
-                            <span className="text-xl font-bold text-gray-800">{slot.interval}</span>
+
+                            {/* Vacancy Badge */}
+                            <span className={`px-3 py-1.5 rounded-full text-xs font-bold shadow-sm ${
+                              hasVacancy
+                                ? 'bg-white/95 text-gray-800'
+                                : 'bg-gray-500/80 text-white'
+                            }`}>
+                              <Users className="h-3 w-3 inline mr-1" />
+                              {slot.available}/{slot.max_quantity}
+                            </span>
                           </div>
-                          <div className={`px-2.5 py-1 rounded-full text-sm font-bold ${
-                            hasVacancy
-                              ? 'bg-green-100 text-green-700'
-                              : 'bg-gray-200 text-gray-500'
-                          }`}>
-                            {slot.available}/{slot.max_quantity}
+
+                          {/* Bottom Content */}
+                          <div>
+                            {/* Tags */}
+                            <div className="flex flex-wrap gap-2 mb-3">
+                              <span className="px-3 py-1.5 bg-white/20 backdrop-blur-sm rounded-full text-xs font-semibold text-white flex items-center gap-1.5">
+                                <GraduationCap className="h-3.5 w-3.5" />
+                                {levelConfig?.label || slot.level}
+                              </span>
+                              <span className="px-3 py-1.5 bg-white/20 backdrop-blur-sm rounded-full text-xs font-semibold text-white flex items-center gap-1.5">
+                                <Waves className="h-3.5 w-3.5" />
+                                {slot.wave_side === 'Lado_esquerdo' ? 'Esquerda' : 'Direita'}
+                              </span>
+                            </div>
+
+                            {/* Click hint for available slots */}
+                            {hasVacancy && (
+                              <div className="flex items-center justify-center gap-2 pt-3 border-t border-white/20 text-white/70 text-xs">
+                                <Users className="h-3 w-3" />
+                                <span>Clique para agendar</span>
+                              </div>
+                            )}
+
+                            {/* Sold out message */}
+                            {!hasVacancy && (
+                              <div className="flex items-center justify-center gap-2 pt-3 border-t border-white/20 text-white/50 text-xs">
+                                <span>Esgotado</span>
+                              </div>
+                            )}
                           </div>
                         </div>
 
-                        {/* Tags */}
-                        <div className="flex items-center gap-2">
-                          <span className={`px-2.5 py-1 rounded-md text-xs font-medium border ${levelConfig?.color || 'bg-gray-100 text-gray-600 border-gray-300'}`}>
-                            {levelConfig?.label || slot.level}
-                          </span>
-                          <span className="px-2.5 py-1 rounded-md text-xs font-medium bg-gray-100 text-gray-600 border border-gray-200 flex items-center gap-1">
-                            {slot.wave_side === 'Lado_esquerdo' ? '← Esquerda' : '→ Direita'}
-                          </span>
-                        </div>
-
-                        {/* Vacancy indicator */}
+                        {/* Green pulse indicator for available slots */}
                         {hasVacancy && (
-                          <div className="absolute top-2 right-2 w-2 h-2 rounded-full bg-green-500 animate-pulse" />
+                          <div className="absolute top-3 right-3 w-2.5 h-2.5 rounded-full bg-green-400 animate-pulse shadow-lg shadow-green-400/50" />
                         )}
                       </div>
                     );
@@ -398,6 +482,30 @@ export default function AvailabilityPage() {
           )}
         </>
       )}
+
+      {/* Batch Booking Modal */}
+      <BatchBookingModal
+        isOpen={showBookingModal}
+        onClose={() => setShowBookingModal(false)}
+        slot={selectedSlot}
+        onSuccess={handleBookingSuccess}
+      />
     </MainLayout>
+  );
+}
+
+export default function AvailabilityPage() {
+  return (
+    <Suspense fallback={
+      <MainLayout title="Disponibilidade">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
+          {[1, 2, 3, 4, 5, 6, 7, 8].map((i) => (
+            <div key={i} className="animate-pulse h-[180px] bg-gray-200 rounded-2xl" />
+          ))}
+        </div>
+      </MainLayout>
+    }>
+      <AvailabilityContent />
+    </Suspense>
   );
 }

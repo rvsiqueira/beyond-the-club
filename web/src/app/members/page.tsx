@@ -1,13 +1,33 @@
 'use client';
 
 import { useState } from 'react';
-import Link from 'next/link';
-import { Search, User, Settings, CheckCircle, XCircle } from 'lucide-react';
+import { useRouter } from 'next/navigation';
+import { Search, User, CheckCircle, XCircle, Users } from 'lucide-react';
 import { MainLayout } from '@/components/layout';
-import { Card, CardContent, Input, Badge, Button } from '@/components/ui';
+import { Input } from '@/components/ui';
 import { useMembers } from '@/hooks';
 
+// Random backgrounds for members - using surf backgrounds with different approach
+const MEMBER_BACKGROUNDS = [
+  '/surf-backgrounds/surf-1.jpg',
+  '/surf-backgrounds/surf-2.jpg',
+  '/surf-backgrounds/surf-3.jpg',
+  '/surf-backgrounds/surf-4.jpg',
+  '/surf-backgrounds/surf-5.jpg',
+  '/surf-backgrounds/surf-6.jpg',
+  '/surf-backgrounds/surf-7.jpg',
+  '/surf-backgrounds/surf-8.jpg',
+  '/surf-backgrounds/surf-9.jpg',
+  '/surf-backgrounds/surf-10.jpg',
+];
+
+// Get a consistent background for a member based on member_id
+const getMemberBackground = (memberId: number) => {
+  return MEMBER_BACKGROUNDS[memberId % MEMBER_BACKGROUNDS.length];
+};
+
 export default function MembersPage() {
+  const router = useRouter();
   const { data, isLoading, error } = useMembers();
   const [search, setSearch] = useState('');
 
@@ -16,6 +36,10 @@ export default function MembersPage() {
       m.name.toLowerCase().includes(search.toLowerCase()) ||
       m.social_name.toLowerCase().includes(search.toLowerCase())
   ) ?? [];
+
+  const handleMemberClick = (memberId: number) => {
+    router.push(`/members/${memberId}`);
+  };
 
   return (
     <MainLayout title="Membros">
@@ -41,83 +65,99 @@ export default function MembersPage() {
 
       {/* Loading */}
       {isLoading ? (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
           {[1, 2, 3, 4, 5, 6].map((i) => (
-            <div key={i} className="animate-pulse h-32 bg-gray-100 rounded-xl" />
+            <div key={i} className="animate-pulse h-[180px] bg-gray-200 rounded-2xl" />
           ))}
         </div>
       ) : (
         <>
-          {/* Stats */}
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
-            <div className="bg-white p-4 rounded-lg border border-gray-200">
-              <p className="text-sm text-gray-500">Total</p>
-              <p className="text-2xl font-bold">{data?.total ?? 0}</p>
-            </div>
-            <div className="bg-white p-4 rounded-lg border border-gray-200">
-              <p className="text-sm text-gray-500">Com Preferencias</p>
-              <p className="text-2xl font-bold text-green-600">
-                {data?.members.filter(m => m.has_preferences).length ?? 0}
-              </p>
-            </div>
-            <div className="bg-white p-4 rounded-lg border border-gray-200">
-              <p className="text-sm text-gray-500">Agendados</p>
-              <p className="text-2xl font-bold text-blue-600">
-                {data?.members.filter(m => m.has_booking).length ?? 0}
-              </p>
-            </div>
-          </div>
-
           {/* Members Grid */}
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
             {filteredMembers.map((member) => (
-              <Card key={member.member_id} className="hover:shadow-md transition-shadow">
-                <CardContent className="p-4">
+              <div
+                key={member.member_id}
+                onClick={() => handleMemberClick(member.member_id)}
+                className="relative rounded-2xl overflow-hidden shadow-lg group transition-all duration-300 cursor-pointer hover:shadow-xl hover:-translate-y-1"
+              >
+                {/* Background Image */}
+                <div
+                  className="absolute inset-0 bg-cover bg-center transition-transform duration-500 group-hover:scale-110"
+                  style={{ backgroundImage: `url(${getMemberBackground(member.member_id)})` }}
+                />
+                {/* Gradient Overlay - darker at bottom for text readability */}
+                <div className="absolute inset-0 bg-gradient-to-t from-black/90 via-black/50 to-black/30" />
+
+                {/* Content */}
+                <div className="relative p-4 min-h-[180px] flex flex-col justify-between">
+                  {/* Top Row - Avatar and Usage */}
                   <div className="flex items-start justify-between">
                     <div className="flex items-center gap-3">
-                      <div className="w-12 h-12 bg-primary-100 rounded-full flex items-center justify-center">
-                        <User className="h-6 w-6 text-primary-600" />
+                      <div className="w-12 h-12 bg-white/20 backdrop-blur-sm rounded-full flex items-center justify-center">
+                        <span className="text-white font-bold text-lg">
+                          {member.social_name[0]}
+                        </span>
                       </div>
                       <div>
-                        <h3 className="font-semibold text-gray-900">
+                        <h3 className="font-bold text-white text-lg drop-shadow-lg">
                           {member.social_name}
                         </h3>
-                        <p className="text-sm text-gray-500">{member.name}</p>
-                        <p className="text-xs text-gray-400">
+                        <p className="text-white/70 text-xs">
                           ID: {member.member_id}
                         </p>
                       </div>
                     </div>
-                    <Link href={`/members/${member.member_id}`}>
-                      <Button variant="ghost" size="sm">
-                        <Settings className="h-4 w-4" />
-                      </Button>
-                    </Link>
+
+                    {/* Usage Badge */}
+                    <span className="px-2.5 py-1 rounded-full text-xs font-bold bg-white/95 text-gray-800 flex items-center gap-1">
+                      <Users className="h-3 w-3" />
+                      {member.usage}/{member.limit}
+                    </span>
                   </div>
 
-                  <div className="mt-4 flex flex-wrap gap-2">
-                    {member.is_titular && (
-                      <Badge variant="info">Titular</Badge>
-                    )}
-                    {member.has_preferences ? (
-                      <Badge variant="success">
-                        <CheckCircle className="h-3 w-3 mr-1" />
-                        Preferencias
-                      </Badge>
-                    ) : (
-                      <Badge variant="warning">
-                        <XCircle className="h-3 w-3 mr-1" />
-                        Sem prefs
-                      </Badge>
-                    )}
-                    {member.has_booking ? (
-                      <Badge variant="success">Agendado</Badge>
-                    ) : (
-                      <Badge variant="default">Disponivel</Badge>
-                    )}
+                  {/* Bottom Content */}
+                  <div>
+                    {/* Full Name */}
+                    <p className="text-white/60 text-xs mb-2 truncate">
+                      {member.name}
+                    </p>
+
+                    {/* Tags */}
+                    <div className="flex flex-wrap gap-2">
+                      {member.is_titular && (
+                        <span className="px-2.5 py-1 bg-blue-500/40 backdrop-blur-sm rounded-full text-xs font-semibold text-white">
+                          Titular
+                        </span>
+                      )}
+                      {member.has_preferences ? (
+                        <span className="px-2.5 py-1 bg-green-500/40 backdrop-blur-sm rounded-full text-xs font-semibold text-white flex items-center gap-1">
+                          <CheckCircle className="h-3 w-3" />
+                          Preferências
+                        </span>
+                      ) : (
+                        <span className="px-2.5 py-1 bg-yellow-500/40 backdrop-blur-sm rounded-full text-xs font-semibold text-white flex items-center gap-1">
+                          <XCircle className="h-3 w-3" />
+                          Sem prefs
+                        </span>
+                      )}
+                      {member.has_booking ? (
+                        <span className="px-2.5 py-1 bg-green-500/40 backdrop-blur-sm rounded-full text-xs font-semibold text-white">
+                          Agendado
+                        </span>
+                      ) : (
+                        <span className="px-2.5 py-1 bg-white/20 backdrop-blur-sm rounded-full text-xs font-semibold text-white">
+                          Disponível
+                        </span>
+                      )}
+                    </div>
                   </div>
-                </CardContent>
-              </Card>
+                </div>
+
+                {/* Status indicator for booked members */}
+                {member.has_booking && (
+                  <div className="absolute top-3 right-3 w-2.5 h-2.5 rounded-full bg-green-400 animate-pulse shadow-lg shadow-green-400/50" />
+                )}
+              </div>
             ))}
           </div>
 
