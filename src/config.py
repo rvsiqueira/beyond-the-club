@@ -8,6 +8,28 @@ from dotenv import load_dotenv
 load_dotenv()
 
 
+# Fixed session hours by level
+# Each level has specific time slots available
+SESSION_FIXED_HOURS = {
+    "Iniciante1": ["13:00", "15:00"],
+    "Iniciante2": ["09:00", "17:00"],
+    "Intermediario1": ["10:00", "16:00"],
+    "Intermediario2": ["08:00", "12:00", "18:00"],
+    "Avançado1": ["11:00", "14:00"],
+    "Avançado2": ["07:00", "19:00"],
+}
+
+
+def get_valid_hours_for_level(level: str) -> List[str]:
+    """Get valid hours for a specific session level."""
+    return SESSION_FIXED_HOURS.get(level, [])
+
+
+def get_all_levels() -> List[str]:
+    """Get all available session levels."""
+    return list(SESSION_FIXED_HOURS.keys())
+
+
 # Sport configuration definitions
 SPORT_CONFIGS = {
     "surf": {

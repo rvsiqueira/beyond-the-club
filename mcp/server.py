@@ -369,6 +369,59 @@ async def list_tools() -> list[Tool]:
                 "properties": {}
             }
         ),
+        Tool(
+            name="get_session_options",
+            description="Get available session options with fixed hours per level. Shows valid levels, wave sides, and which hours are available for each level.",
+            inputSchema={
+                "type": "object",
+                "properties": {}
+            }
+        ),
+        Tool(
+            name="search_session",
+            description="Search and book a SPECIFIC session. Unlike start_auto_monitor (which uses member preferences), this allows selecting exact: level, wave side, date, and hour. Each level has fixed valid hours.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "member_name": {
+                        "type": "string",
+                        "description": "Member's name to book for"
+                    },
+                    "level": {
+                        "type": "string",
+                        "description": "Session level: Iniciante1 (13:00/15:00), Iniciante2 (09:00/17:00), Intermediario1 (10:00/16:00), Intermediario2 (08:00/12:00/18:00), Avançado1 (11:00/14:00), Avançado2 (07:00/19:00)"
+                    },
+                    "wave_side": {
+                        "type": "string",
+                        "description": "Wave side: 'Lado_esquerdo' or 'Lado_direito'"
+                    },
+                    "target_date": {
+                        "type": "string",
+                        "description": "Target date (YYYY-MM-DD format)"
+                    },
+                    "target_hour": {
+                        "type": "string",
+                        "description": "Target hour (HH:MM format). Must be valid for the selected level."
+                    },
+                    "auto_book": {
+                        "type": "boolean",
+                        "description": "Auto-book when slot found (default: true)",
+                        "default": True
+                    },
+                    "duration_minutes": {
+                        "type": "integer",
+                        "description": "How long to search (default: 120 minutes)",
+                        "default": 120
+                    },
+                    "sport": {
+                        "type": "string",
+                        "description": "Sport type: 'surf' or 'tennis'",
+                        "default": "surf"
+                    }
+                },
+                "required": ["member_name", "level", "wave_side", "target_date", "target_hour"]
+            }
+        ),
     ])
 
     return tools
@@ -412,6 +465,10 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> list[TextContent]:
             result = await monitor.start_auto_monitor(**arguments)
         elif name == "check_monitor_status":
             result = await monitor.check_monitor_status()
+        elif name == "get_session_options":
+            result = await monitor.get_session_options()
+        elif name == "search_session":
+            result = await monitor.search_session(**arguments)
         else:
             result = f"Unknown tool: {name}"
 
