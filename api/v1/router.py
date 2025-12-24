@@ -6,7 +6,7 @@ Aggregates all v1 endpoints.
 
 from fastapi import APIRouter
 
-from . import auth, members, availability, bookings, monitor, sports
+from . import auth, members, availability, bookings, monitor, sports, system
 
 router = APIRouter()
 
@@ -17,3 +17,4 @@ router.include_router(availability.router, prefix="/availability", tags=["Availa
 router.include_router(bookings.router, prefix="/bookings", tags=["Bookings"])
 router.include_router(monitor.router, prefix="/monitor", tags=["Monitor"])
 router.include_router(sports.router, prefix="/sports", tags=["Sports"])
+router.include_router(system.router, prefix="/system", tags=["System"])

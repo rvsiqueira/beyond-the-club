@@ -37,7 +37,20 @@ class SMSAuth:
         payload = {"phone": phone_number}
         headers = self._get_api_headers(admin_token)
 
+        logger.debug(f"Sending SMS request to {url} with phone: {phone_number}")
         response = self._client.post(url, json=payload, headers=headers)
+
+        if not response.is_success:
+            logger.error(f"SMS request failed: {response.status_code} - {response.text}")
+            # Check for rate limiting in response body
+            try:
+                data = response.json()
+                if data.get("statusCode") == 429:
+                    raise Exception("Limite de SMS atingido. Aguarde alguns minutos antes de tentar novamente.")
+            except Exception as e:
+                if "Limite de SMS" in str(e):
+                    raise e
+
         response.raise_for_status()
 
         logger.info(f"SMS code sent to {phone_number}")

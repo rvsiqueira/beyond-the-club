@@ -21,3 +21,6 @@ websockets>=12.0
 
 # MCP (Model Context Protocol)
 mcp>=1.0.0
+
+# Scheduler
+apscheduler>=3.10.0

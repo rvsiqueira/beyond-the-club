@@ -8,10 +8,11 @@ import json
 import logging
 from pathlib import Path
 from typing import Optional, List, Dict, Any
-from datetime import datetime
+from datetime import datetime, timezone
 from dataclasses import dataclass
 
 from .base import BaseService, ServiceContext
+from ..packages import get_package_info
 
 logger = logging.getLogger(__name__)
 
@@ -82,7 +83,7 @@ class AvailabilityService(BaseService):
     def _save_cache(self, cache: Dict[str, Any]):
         """Save availability cache to file."""
         try:
-            cache["scanned_at"] = datetime.now().isoformat()
+            cache["scanned_at"] = datetime.now(timezone.utc).isoformat()
             AVAILABILITY_CACHE_FILE.write_text(json.dumps(cache, indent=2))
             logger.debug("Availability cache saved")
         except Exception as e:
@@ -237,13 +238,15 @@ class AvailabilityService(BaseService):
         """
         Get available slots from cache.
 
+        Uses fixed package mapping from config when cache doesn't have package info.
+
         Returns:
             List of AvailableSlot objects from cache
         """
         cache = self._load_cache()
         slots = []
 
-        packages = cache.get("packages", {})
+        packages_from_cache = cache.get("packages", {})
 
         for date, combos in cache.get("dates", {}).items():
             for combo_key, intervals in combos.items():
@@ -252,9 +255,17 @@ class AvailabilityService(BaseService):
                     continue
                 level, wave_side = parts
 
-                pkg = packages.get(combo_key, {})
-                package_id = pkg.get("packageId", 0)
-                product_id = pkg.get("productId", 0)
+                # First try cache, then fall back to fixed config
+                pkg_from_cache = packages_from_cache.get(combo_key, {})
+                package_id = pkg_from_cache.get("packageId", 0)
+                product_id = pkg_from_cache.get("productId", 0)
+
+                # If not in cache, use fixed config
+                if package_id == 0 or product_id == 0:
+                    pkg_info = get_package_info(combo_key, self.current_sport)
+                    if pkg_info:
+                        package_id = pkg_info.package_id
+                        product_id = pkg_info.product_id
 
                 for interval_data in intervals:
                     slot = AvailableSlot(

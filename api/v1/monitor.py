@@ -13,7 +13,7 @@ from uuid import uuid4
 from fastapi import APIRouter, HTTPException, status, Query, WebSocket, WebSocketDisconnect
 from pydantic import BaseModel, Field
 
-from ..deps import ServicesDep, CurrentUser, get_services
+from ..deps import ServicesDep, CurrentUser, get_services, ensure_beyond_api
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -60,14 +60,8 @@ async def start_monitor(
     """
     services.context.set_sport(sport)
 
-    if not services.context.api:
-        try:
-            services.auth.initialize(use_cached=True)
-        except Exception as e:
-            raise HTTPException(
-                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                detail=f"Beyond API not available: {str(e)}"
-            )
+    # Initialize Beyond API using user's tokens (no auto-SMS)
+    ensure_beyond_api(services, current_user)
 
     # Verify all members exist and have preferences
     for member_id in request.member_ids:
@@ -218,14 +212,31 @@ async def monitor_websocket(websocket: WebSocket, monitor_id: str):
     # Set sport context
     services.context.set_sport(monitor["sport"])
 
-    # Initialize Beyond API if needed
+    # Initialize Beyond API using user's Beyond tokens (no auto-SMS)
     if not services.context.api:
-        try:
-            services.auth.initialize(use_cached=True)
-        except Exception as e:
+        user_phone = monitor.get("user_phone")
+        user_token = services.beyond_tokens.get_token(user_phone) if user_phone else None
+
+        if user_token and services.beyond_tokens.has_valid_token(user_phone):
+            try:
+                from src.firebase_auth import FirebaseTokens
+                tokens = FirebaseTokens(
+                    id_token=user_token.id_token,
+                    refresh_token=user_token.refresh_token,
+                    expires_at=user_token.expires_at
+                )
+                services.auth.initialize_with_tokens(tokens)
+            except Exception as e:
+                await websocket.send_json({
+                    "type": "error",
+                    "message": f"Beyond API initialization failed: {str(e)}"
+                })
+                await websocket.close()
+                return
+        else:
             await websocket.send_json({
                 "type": "error",
-                "message": f"Beyond API not available: {str(e)}"
+                "message": "Beyond verification required. Please verify via SMS first."
             })
             await websocket.close()
             return

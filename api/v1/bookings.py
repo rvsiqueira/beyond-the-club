@@ -9,7 +9,7 @@ from typing import Optional, List, Dict, Any
 from fastapi import APIRouter, HTTPException, status, Query
 from pydantic import BaseModel, Field
 
-from ..deps import ServicesDep, CurrentUser
+from ..deps import ServicesDep, CurrentUser, ensure_beyond_api
 
 router = APIRouter()
 
@@ -69,14 +69,8 @@ async def list_bookings(
     """
     services.context.set_sport(sport)
 
-    if not services.context.api:
-        try:
-            services.auth.initialize(use_cached=True)
-        except Exception as e:
-            raise HTTPException(
-                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                detail=f"Beyond API not available: {str(e)}"
-            )
+    # Initialize Beyond API using user's tokens (no auto-SMS)
+    ensure_beyond_api(services, current_user)
 
     if active_only:
         bookings = services.bookings.get_active_bookings()
@@ -87,16 +81,27 @@ async def list_bookings(
     for b in bookings:
         member = b.get("member", {})
         invitation = b.get("invitation", {})
-        tags = invitation.get("tags", [])
+
+        # Extract interval - CLI uses "begin" field from invitation
+        begin = invitation.get("begin", "")
+        interval = begin[:5] if len(str(begin)) >= 5 else begin
+        if not interval:
+            # Fallback to other possible fields
+            interval = invitation.get("interval", "") or invitation.get("time", "")
+
+        # Tags come from booking root, not invitation (as CLI does)
+        tags = b.get("tags", [])
+        if not tags:
+            # Fallback to invitation tags
+            tags = invitation.get("tags", [])
 
         # Extract level and wave_side from tags
         level = None
         wave_side = None
         for tag in tags:
-            if tag in ["Iniciante1", "Iniciante2", "Intermediario1",
-                       "Intermediario2", "Avançado1", "Avançado2"]:
+            if "Iniciante" in tag or "Intermediario" in tag or "Avançado" in tag or "Avancado" in tag:
                 level = tag
-            elif tag in ["Lado_esquerdo", "Lado_direito"]:
+            elif "Lado_" in tag:
                 wave_side = tag
 
         booking_resp = BookingResponse(
@@ -105,7 +110,7 @@ async def list_bookings(
             member_id=member.get("memberId", 0),
             member_name=member.get("socialName", ""),
             date=invitation.get("date", "").split("T")[0],
-            interval=invitation.get("interval", ""),
+            interval=interval,
             level=level,
             wave_side=wave_side,
             status=b.get("status", "Unknown")
@@ -148,14 +153,8 @@ async def create_booking(
 
     services.context.set_sport(sport)
 
-    if not services.context.api:
-        try:
-            services.auth.initialize(use_cached=True)
-        except Exception as e:
-            raise HTTPException(
-                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                detail=f"Beyond API not available: {str(e)}"
-            )
+    # Initialize Beyond API using user's tokens (no auto-SMS)
+    ensure_beyond_api(services, current_user)
 
     # Verify member exists
     member = services.members.get_member_by_id(request.member_id)
@@ -232,14 +231,8 @@ async def get_booking(
     """
     services.context.set_sport(sport)
 
-    if not services.context.api:
-        try:
-            services.auth.initialize(use_cached=True)
-        except Exception as e:
-            raise HTTPException(
-                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                detail=f"Beyond API not available: {str(e)}"
-            )
+    # Initialize Beyond API using user's tokens (no auto-SMS)
+    ensure_beyond_api(services, current_user)
 
     bookings = services.bookings.list_bookings()
 
@@ -247,12 +240,22 @@ async def get_booking(
         if b.get("voucherCode") == voucher_code:
             member = b.get("member", {})
             invitation = b.get("invitation", {})
-            tags = invitation.get("tags", [])
+
+            # Extract interval from begin field
+            begin = invitation.get("begin", "")
+            interval = begin[:5] if len(str(begin)) >= 5 else begin
+            if not interval:
+                interval = invitation.get("interval", "")
+
+            # Tags from booking root
+            tags = b.get("tags", [])
+            if not tags:
+                tags = invitation.get("tags", [])
 
             level = None
             wave_side = None
             for tag in tags:
-                if "Iniciante" in tag or "Intermediario" in tag or "Avançado" in tag:
+                if "Iniciante" in tag or "Intermediario" in tag or "Avançado" in tag or "Avancado" in tag:
                     level = tag
                 elif "Lado_" in tag:
                     wave_side = tag
@@ -263,7 +266,7 @@ async def get_booking(
                 "member": member,
                 "invitation": invitation,
                 "date": invitation.get("date", "").split("T")[0],
-                "interval": invitation.get("interval", ""),
+                "interval": interval,
                 "level": level,
                 "wave_side": wave_side,
                 "status": b.get("status", "Unknown"),
@@ -288,14 +291,8 @@ async def cancel_booking(
     """
     services.context.set_sport(sport)
 
-    if not services.context.api:
-        try:
-            services.auth.initialize(use_cached=True)
-        except Exception as e:
-            raise HTTPException(
-                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                detail=f"Beyond API not available: {str(e)}"
-            )
+    # Initialize Beyond API using user's tokens (no auto-SMS)
+    ensure_beyond_api(services, current_user)
 
     try:
         result = services.bookings.cancel_booking(voucher_code)
@@ -328,14 +325,8 @@ async def swap_booking(
 
     services.context.set_sport(sport)
 
-    if not services.context.api:
-        try:
-            services.auth.initialize(use_cached=True)
-        except Exception as e:
-            raise HTTPException(
-                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                detail=f"Beyond API not available: {str(e)}"
-            )
+    # Initialize Beyond API using user's tokens (no auto-SMS)
+    ensure_beyond_api(services, current_user)
 
     # Get original booking details
     bookings = services.bookings.list_bookings()
@@ -361,12 +352,16 @@ async def swap_booking(
 
     # Extract slot info from original booking
     invitation = original.get("invitation", {})
-    tags = invitation.get("tags", [])
+
+    # Tags from booking root
+    tags = original.get("tags", [])
+    if not tags:
+        tags = invitation.get("tags", [])
 
     level = None
     wave_side = None
     for tag in tags:
-        if "Iniciante" in tag or "Intermediario" in tag or "Avançado" in tag:
+        if "Iniciante" in tag or "Intermediario" in tag or "Avançado" in tag or "Avancado" in tag:
             level = tag
         elif "Lado_" in tag:
             wave_side = tag
@@ -374,7 +369,12 @@ async def swap_booking(
     # We need package_id and product_id - get from availability
     # For now, scan to find the matching slot
     date = invitation.get("date", "").split("T")[0]
-    interval = invitation.get("interval", "")
+
+    # Extract interval from begin field
+    begin = invitation.get("begin", "")
+    interval = begin[:5] if len(str(begin)) >= 5 else begin
+    if not interval:
+        interval = invitation.get("interval", "")
 
     if not services.availability.is_cache_valid():
         services.availability.scan_availability()
@@ -441,14 +441,8 @@ async def get_bookings_by_date(
     """
     services.context.set_sport(sport)
 
-    if not services.context.api:
-        try:
-            services.auth.initialize(use_cached=True)
-        except Exception as e:
-            raise HTTPException(
-                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                detail=f"Beyond API not available: {str(e)}"
-            )
+    # Initialize Beyond API using user's tokens (no auto-SMS)
+    ensure_beyond_api(services, current_user)
 
     bookings_by_date = services.bookings.get_bookings_by_date()
     bookings = bookings_by_date.get(date, [])

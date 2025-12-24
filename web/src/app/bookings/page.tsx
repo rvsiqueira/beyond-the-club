@@ -2,27 +2,60 @@
 
 import { useState } from 'react';
 import Link from 'next/link';
-import { Ticket, Plus, X, RefreshCw, Copy, Check } from 'lucide-react';
+import { Ticket, Plus, X, RefreshCw, Copy, Check, Clock, Waves } from 'lucide-react';
 import { MainLayout } from '@/components/layout';
-import { Card, CardContent, CardHeader, CardTitle, Button, Badge } from '@/components/ui';
-import { useBookings, useCancelBooking } from '@/hooks';
+import { Card, CardContent, Button, Badge } from '@/components/ui';
+import { useBookings } from '@/hooks';
 import { formatDate } from '@/lib/utils';
+import { BookingActionModal } from '@/components/BookingActionModal';
+import { useQueryClient } from '@tanstack/react-query';
+
+interface Booking {
+  voucher_code: string;
+  access_code: string;
+  member_name: string;
+  member_id: number;
+  date: string;
+  interval: string;
+  level?: string;
+  wave_side?: string;
+  status: string;
+}
 
 export default function BookingsPage() {
   const { data, isLoading, error, refetch } = useBookings();
-  const cancelMutation = useCancelBooking();
+  const queryClient = useQueryClient();
   const [copiedVoucher, setCopiedVoucher] = useState<string | null>(null);
+  const [selectedBooking, setSelectedBooking] = useState<Booking | null>(null);
+  const [showActionModal, setShowActionModal] = useState(false);
 
-  const handleCancel = async (voucherCode: string) => {
-    if (confirm('Tem certeza que deseja cancelar este agendamento?')) {
-      await cancelMutation.mutateAsync(voucherCode);
-    }
+  const handleOpenActionModal = (booking: Booking) => {
+    setSelectedBooking(booking);
+    setShowActionModal(true);
+  };
+
+  const handleActionSuccess = () => {
+    queryClient.invalidateQueries({ queryKey: ['bookings'] });
+    queryClient.invalidateQueries({ queryKey: ['members'] });
   };
 
   const copyToClipboard = (text: string, voucher: string) => {
     navigator.clipboard.writeText(text);
     setCopiedVoucher(voucher);
     setTimeout(() => setCopiedVoucher(null), 2000);
+  };
+
+  // Format level for display (full name)
+  const formatLevel = (level?: string) => {
+    if (!level) return null;
+    // Keep full name, just clean up formatting
+    return level.replace('Iniciante', 'Iniciante ').replace('Intermediario', 'Intermediário ').replace('Avançado', 'Avançado ').replace('Avancado', 'Avançado ').trim();
+  };
+
+  // Format wave side for display (full name)
+  const formatWaveSide = (waveSide?: string) => {
+    if (!waveSide) return null;
+    return waveSide.replace('Lado_', '').replace('esquerdo', 'Esquerdo').replace('direito', 'Direito');
   };
 
   return (
@@ -80,19 +113,27 @@ export default function BookingsPage() {
                       <Ticket className="h-6 w-6 text-primary-600" />
                     </div>
                     <div>
-                      <h3 className="font-semibold text-gray-900">
+                      <h3 className="font-semibold text-gray-900 uppercase">
                         {booking.member_name}
                       </h3>
-                      <p className="text-sm text-gray-500">
-                        {formatDate(booking.date)} - {booking.interval}
-                      </p>
-                      <div className="flex gap-2 mt-1">
+                      <div className="flex items-center gap-2 text-sm text-gray-500 mt-1">
+                        <span>{formatDate(booking.date)}</span>
+                        <span>-</span>
+                        <span className="flex items-center gap-1">
+                          <Clock className="h-3.5 w-3.5" />
+                          {booking.interval}
+                        </span>
+                      </div>
+                      <div className="flex gap-2 mt-2">
                         {booking.level && (
-                          <Badge variant="info">{booking.level}</Badge>
+                          <Badge variant="info" className="text-xs">
+                            {formatLevel(booking.level)}
+                          </Badge>
                         )}
                         {booking.wave_side && (
-                          <Badge variant="default">
-                            {booking.wave_side.replace('Lado_', '')}
+                          <Badge variant="default" className="text-xs flex items-center gap-1">
+                            <Waves className="h-3 w-3" />
+                            {formatWaveSide(booking.wave_side)}
                           </Badge>
                         )}
                       </div>
@@ -149,8 +190,7 @@ export default function BookingsPage() {
                       <Button
                         variant="danger"
                         size="sm"
-                        onClick={() => handleCancel(booking.voucher_code)}
-                        isLoading={cancelMutation.isPending}
+                        onClick={() => handleOpenActionModal(booking)}
                       >
                         <X className="h-4 w-4" />
                       </Button>
@@ -162,6 +202,14 @@ export default function BookingsPage() {
           ))}
         </div>
       )}
+
+      {/* Action Modal */}
+      <BookingActionModal
+        isOpen={showActionModal}
+        onClose={() => setShowActionModal(false)}
+        booking={selectedBooking}
+        onSuccess={handleActionSuccess}
+      />
     </MainLayout>
   );
 }

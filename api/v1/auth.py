@@ -261,3 +261,91 @@ async def link_member(
     services.graph.link_user_to_member(current_user.phone, member_id)
 
     return {"success": True, "member_id": member_id}
+
+
+# Beyond API SMS Authentication
+# These endpoints manage the Beyond API (Firebase) tokens per user
+
+class BeyondSMSRequest(BaseModel):
+    """Request to send Beyond SMS code."""
+    phone: str = Field(..., description="Phone number for Beyond API")
+
+
+class BeyondVerifyRequest(BaseModel):
+    """Request to verify Beyond SMS code."""
+    phone: str = Field(..., description="Phone number")
+    code: str = Field(..., description="6-digit SMS code")
+    session_info: str = Field(..., description="Session info from request")
+
+
+@router.post("/beyond/request-sms")
+async def request_beyond_sms(
+    request: BeyondSMSRequest,
+    current_user: CurrentUser,
+    services: ServicesDep
+):
+    """
+    Request SMS code for Beyond API authentication.
+
+    Sends an SMS to the specified phone number with a verification code.
+    The tokens will be linked to the current web user's phone.
+    """
+    try:
+        session_info = services.beyond_tokens.request_sms(request.phone)
+        return {"session_info": session_info}
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=str(e)
+        )
+
+
+@router.post("/beyond/verify-sms")
+async def verify_beyond_sms(
+    request: BeyondVerifyRequest,
+    current_user: CurrentUser,
+    services: ServicesDep
+):
+    """
+    Verify Beyond SMS code and store tokens.
+
+    Verifies the SMS code and stores the Beyond API tokens
+    linked to the current web user's phone number.
+    """
+    try:
+        # Verify using the Beyond phone (that received the SMS)
+        # Store tokens linked to the web user's phone
+        services.beyond_tokens.verify_sms(
+            beyond_phone=request.phone,  # Phone that received SMS
+            code=request.code,
+            session_info=request.session_info,
+            store_for_phone=current_user.phone  # Store linked to web user
+        )
+        return {"success": True}
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e)
+        )
+
+
+@router.get("/beyond/status")
+async def check_beyond_status(
+    current_user: CurrentUser,
+    services: ServicesDep
+):
+    """
+    Check if the current user has valid Beyond API tokens.
+
+    Returns whether the user has valid tokens for the Beyond API.
+    This endpoint will attempt to refresh expired tokens automatically.
+    """
+    # Try to get a valid token (this will refresh if expired)
+    valid_token = services.beyond_tokens.get_valid_id_token(current_user.phone)
+    token = services.beyond_tokens.get_token(current_user.phone)
+
+    return {
+        "valid": valid_token is not None,
+        "phone": current_user.phone,
+        "expires_at": token.expires_at if token else None
+    }

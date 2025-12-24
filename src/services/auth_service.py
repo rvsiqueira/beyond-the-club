@@ -181,6 +181,58 @@ class AuthService(BaseService):
             logger.error(f"Initialization failed: {e}")
             raise
 
+    def initialize_with_tokens(self, tokens: FirebaseTokens) -> bool:
+        """
+        Initialize API with pre-obtained tokens.
+
+        This is used by the web API when user has already authenticated via SMS modal.
+        Does NOT send SMS - just sets up the API with provided tokens.
+
+        Args:
+            tokens: Firebase tokens obtained via SMS verification
+
+        Returns:
+            True if initialization successful
+        """
+        try:
+            self.context.firebase_auth._tokens = tokens
+            self.context.firebase_auth.get_valid_token()  # Validate/refresh if needed
+            self.context.setup_api()
+            logger.info("Initialized API with provided tokens")
+            return True
+        except Exception as e:
+            logger.error(f"Token initialization failed: {e}")
+            raise
+
+    def try_initialize_cached_only(self) -> bool:
+        """
+        Try to initialize using only cached tokens.
+
+        Does NOT send SMS if no valid cached token exists.
+        Returns False if no valid token available (caller should handle this).
+
+        Returns:
+            True if initialized successfully, False if no valid cached token
+        """
+        try:
+            cached = self.load_tokens()
+            if cached:
+                self.context.firebase_auth._tokens = cached
+                try:
+                    self.context.firebase_auth.get_valid_token()
+                    self.context.setup_api()
+                    logger.info("Initialized with cached tokens (no SMS)")
+                    return True
+                except Exception:
+                    logger.info("Cached tokens invalid, SMS required")
+                    return False
+            else:
+                logger.info("No cached tokens, SMS required")
+                return False
+        except Exception as e:
+            logger.warning(f"Cache-only initialization failed: {e}")
+            return False
+
     def is_authenticated(self) -> bool:
         """Check if currently authenticated."""
         return self.context.firebase_auth._tokens is not None

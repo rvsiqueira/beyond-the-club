@@ -21,8 +21,10 @@ from src.services import (
     BookingService,
     MonitorService,
     GraphService,
+    BeyondTokenService,
 )
 from src.auth import JWTHandler, TokenPayload, UserStore, User
+from src.firebase_auth import FirebaseTokens
 
 logger = logging.getLogger(__name__)
 
@@ -42,6 +44,7 @@ class Services:
     bookings: BookingService
     monitor: MonitorService
     graph: GraphService
+    beyond_tokens: BeyondTokenService
     jwt: JWTHandler
     users: UserStore
 
@@ -78,6 +81,7 @@ def get_services() -> Services:
         bookings = BookingService(context, members, availability)
         monitor = MonitorService(context, members, availability, bookings)
         graph = GraphService()
+        beyond_tokens = BeyondTokenService(context)
 
         _services = Services(
             config=config,
@@ -89,6 +93,7 @@ def get_services() -> Services:
             bookings=bookings,
             monitor=monitor,
             graph=graph,
+            beyond_tokens=beyond_tokens,
             jwt=jwt,
             users=users
         )
@@ -250,3 +255,57 @@ async def get_sport(
 
 
 SportDep = Annotated[str, Depends(get_sport)]
+
+
+def ensure_beyond_api(services: Services, user: User) -> bool:
+    """
+    Ensure Beyond API is initialized for the user.
+
+    Uses the user's stored Beyond tokens (from SMS verification modal).
+    Does NOT automatically send SMS - requires explicit verification via modal.
+    Will try to refresh expired tokens using refresh_token.
+
+    Returns:
+        True if API is ready
+
+    Raises:
+        HTTPException 401 if Beyond verification is required
+    """
+    # Check if API is already initialized
+    if services.context.api:
+        return True
+
+    # Try to use user's Beyond token (from SMS verification)
+    user_token = services.beyond_tokens.get_token(user.phone)
+
+    if user_token:
+        # Try to use the token (even if expired, we'll try refresh)
+        try:
+            tokens = FirebaseTokens(
+                id_token=user_token.id_token,
+                refresh_token=user_token.refresh_token,
+                expires_at=user_token.expires_at
+            )
+            # This will attempt refresh if token is expired
+            services.auth.initialize_with_tokens(tokens)
+
+            # If successful and token was refreshed, save the new token
+            new_token = services.context.firebase_auth.get_valid_token()
+            if new_token and services.context.firebase_auth._tokens:
+                # Update stored tokens with refreshed values
+                services.beyond_tokens.save_token(
+                    user.phone,
+                    services.context.firebase_auth._tokens
+                )
+            return True
+        except Exception as e:
+            logger.warning(f"Failed to initialize with user tokens: {e}")
+            # Token might be invalid/refresh failed, delete it
+            services.beyond_tokens.delete_token(user.phone)
+
+    # No valid Beyond token - user needs to verify via SMS modal
+    raise HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail="Beyond verification required",
+        headers={"X-Beyond-Auth-Required": "true"}
+    )

@@ -9,7 +9,7 @@ from typing import Optional, List
 from fastapi import APIRouter, HTTPException, status, Query, BackgroundTasks
 from pydantic import BaseModel, Field
 
-from ..deps import ServicesDep, CurrentUser
+from ..deps import ServicesDep, CurrentUser, ensure_beyond_api
 
 router = APIRouter()
 
@@ -36,6 +36,8 @@ class AvailabilityResponse(BaseModel):
     sport: str
     total: int
     from_cache: bool
+    cache_valid: bool
+    cache_updated_at: Optional[str] = None
 
 
 class DateAvailabilityResponse(BaseModel):
@@ -56,34 +58,28 @@ async def get_availability(
     date: Optional[str] = Query(None, description="Filter by date (YYYY-MM-DD)"),
     level: Optional[str] = Query(None, description="Filter by level"),
     wave_side: Optional[str] = Query(None, description="Filter by wave side"),
-    use_cache: bool = Query(True, description="Use cached data if available")
 ):
     """
-    Get available slots.
+    Get available slots from cache.
 
-    Returns cached data by default, use use_cache=false to force refresh.
+    ALWAYS returns cached data immediately - NEVER triggers a scan.
+    Use POST /availability/scan to refresh the cache.
     """
     services.context.set_sport(sport)
 
-    # Ensure API is initialized
-    if not services.context.api:
-        try:
-            services.auth.initialize(use_cached=True)
-        except Exception as e:
-            raise HTTPException(
-                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                detail=f"Beyond API not available: {str(e)}"
-            )
+    # Get cache data - NO API calls, NO scanning
+    cache = services.availability.get_cache()
+    cache_updated_at = cache.get("scanned_at")
 
-    from_cache = False
+    # Check cache validity (all dates >= today)
+    from datetime import datetime
+    today = datetime.now().strftime("%Y-%m-%d")
+    cache_valid = bool(cache.get("dates")) and all(
+        d >= today for d in cache.get("dates", {}).keys()
+    )
 
-    # Try cache first
-    if use_cache and services.availability.is_cache_valid():
-        slots = services.availability.get_slots_from_cache()
-        from_cache = True
-    else:
-        # Full scan
-        slots = services.availability.scan_availability()
+    # Load slots from cache (fast, no API calls)
+    slots = services.availability.get_slots_from_cache() if cache.get("dates") else []
 
     # Apply filters
     if date:
@@ -105,29 +101,20 @@ async def get_availability(
             court=getattr(s, "court", None),
             available=s.available,
             max_quantity=s.max_quantity,
-            package_id=s.package_id,
-            product_id=s.product_id,
+            package_id=str(s.package_id),
+            product_id=str(s.product_id),
             combo_key=s.combo_key
         )
         for s in slots
     ]
 
-    # Sync to graph
-    for s in slots:
-        services.graph.sync_available_slot(
-            date=s.date,
-            interval=s.interval,
-            available=s.available,
-            max_quantity=s.max_quantity,
-            level=s.level,
-            wave_side=s.wave_side
-        )
-
     return AvailabilityResponse(
         slots=result,
         sport=sport,
         total=len(result),
-        from_cache=from_cache
+        from_cache=True,
+        cache_valid=cache_valid,
+        cache_updated_at=cache_updated_at
     )
 
 
@@ -145,17 +132,15 @@ async def scan_availability(
     """
     services.context.set_sport(sport)
 
-    if not services.context.api:
-        try:
-            services.auth.initialize(use_cached=True)
-        except Exception as e:
-            raise HTTPException(
-                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                detail=f"Beyond API not available: {str(e)}"
-            )
+    # Initialize Beyond API using user's tokens (no auto-SMS)
+    ensure_beyond_api(services, current_user)
 
     # Full scan
     slots = services.availability.scan_availability()
+
+    # Get updated cache info
+    cache = services.availability.get_cache()
+    cache_updated_at = cache.get("scanned_at")
 
     # Filter to available only
     available_slots = [s for s in slots if s.available > 0]
@@ -169,8 +154,8 @@ async def scan_availability(
             court=getattr(s, "court", None),
             available=s.available,
             max_quantity=s.max_quantity,
-            package_id=s.package_id,
-            product_id=s.product_id,
+            package_id=str(s.package_id),
+            product_id=str(s.product_id),
             combo_key=s.combo_key
         )
         for s in available_slots
@@ -180,7 +165,9 @@ async def scan_availability(
         slots=result,
         sport=sport,
         total=len(result),
-        from_cache=False
+        from_cache=False,
+        cache_valid=True,
+        cache_updated_at=cache_updated_at
     )
 
 
@@ -194,23 +181,13 @@ async def get_available_dates(
 ):
     """
     Get dates that have availability for given criteria.
+    Returns from cache only - never triggers a scan.
     """
     services.context.set_sport(sport)
 
-    if not services.context.api:
-        try:
-            services.auth.initialize(use_cached=True)
-        except Exception as e:
-            raise HTTPException(
-                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                detail=f"Beyond API not available: {str(e)}"
-            )
-
-    # Get from cache if valid
-    if services.availability.is_cache_valid():
-        slots = services.availability.get_slots_from_cache()
-    else:
-        slots = services.availability.scan_availability()
+    # Get from cache only - no API calls
+    cache = services.availability.get_cache()
+    slots = services.availability.get_slots_from_cache() if cache.get("dates") else []
 
     # Apply filters
     if level:
@@ -239,19 +216,11 @@ async def get_availability_for_member(
 ):
     """
     Get available slots matching a member's preferences.
+    Returns from cache only - never triggers a scan.
     """
     services.context.set_sport(sport)
 
-    if not services.context.api:
-        try:
-            services.auth.initialize(use_cached=True)
-        except Exception as e:
-            raise HTTPException(
-                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                detail=f"Beyond API not available: {str(e)}"
-            )
-
-    # Get member preferences
+    # Get member preferences (from local file, no API)
     prefs = services.members.get_member_preferences(member_id, sport)
     if not prefs or not prefs.sessions:
         return {
@@ -260,11 +229,9 @@ async def get_availability_for_member(
             "message": "No preferences configured"
         }
 
-    # Get available slots
-    if services.availability.is_cache_valid():
-        all_slots = services.availability.get_slots_from_cache()
-    else:
-        all_slots = services.availability.scan_availability()
+    # Get available slots from cache only - no API calls
+    cache = services.availability.get_cache()
+    all_slots = services.availability.get_slots_from_cache() if cache.get("dates") else []
 
     # Filter by date if specified
     if date:
@@ -287,8 +254,8 @@ async def get_availability_for_member(
             court=getattr(s, "court", None),
             available=s.available,
             max_quantity=s.max_quantity,
-            package_id=s.package_id,
-            product_id=s.product_id,
+            package_id=str(s.package_id),
+            product_id=str(s.product_id),
             combo_key=s.combo_key
         )
         for s in matching

@@ -51,12 +51,13 @@ export function useCancelBooking() {
   });
 }
 
-export function useSwapBooking(voucherCode: string) {
+export function useSwapBooking() {
   const queryClient = useQueryClient();
   const sport = useAuthStore((state) => state.sport);
 
   return useMutation({
-    mutationFn: (newMemberId: number) => api.swapBooking(voucherCode, newMemberId, sport),
+    mutationFn: ({ voucherCode, newMemberId }: { voucherCode: string; newMemberId: number }) =>
+      api.swapBooking(voucherCode, newMemberId, sport),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['bookings'] });
       queryClient.invalidateQueries({ queryKey: ['members'] });

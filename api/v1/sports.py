@@ -10,6 +10,7 @@ from fastapi import APIRouter, Query
 
 from ..deps import ServicesDep
 from src.config import SPORT_CONFIGS
+from src.packages import PACKAGES_BY_SPORT, get_package_info
 
 router = APIRouter()
 
@@ -159,4 +160,54 @@ async def get_sport_combos(sport: str):
         "sport": sport,
         "combos": combos,
         "total": len(combos)
+    }
+
+
+@router.get("/{sport}/packages")
+async def get_sport_packages(sport: str):
+    """
+    Get package ID mappings for a sport.
+
+    Returns fixed mapping of level/wave_side combinations to their package IDs.
+    These mappings are stable and don't change.
+    """
+    packages = PACKAGES_BY_SPORT.get(sport, {})
+
+    result = {}
+    for combo_key, pkg_info in packages.items():
+        result[combo_key] = {
+            "package_id": pkg_info.package_id,
+            "product_id": pkg_info.product_id
+        }
+
+    return {
+        "sport": sport,
+        "packages": result,
+        "total": len(result)
+    }
+
+
+@router.get("/{sport}/packages/{combo_key:path}")
+async def get_package_for_combo(sport: str, combo_key: str):
+    """
+    Get package ID for a specific combo key.
+
+    Args:
+        sport: Sport type (surf, tennis)
+        combo_key: Combo key like "Iniciante1/Lado_esquerdo"
+    """
+    pkg_info = get_package_info(combo_key, sport)
+
+    if not pkg_info:
+        return {
+            "error": f"Package not found for {combo_key}",
+            "combo_key": combo_key,
+            "sport": sport
+        }
+
+    return {
+        "combo_key": combo_key,
+        "sport": sport,
+        "package_id": pkg_info.package_id,
+        "product_id": pkg_info.product_id
     }

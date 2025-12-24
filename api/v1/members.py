@@ -9,7 +9,7 @@ from typing import Optional, List, Dict, Any
 from fastapi import APIRouter, HTTPException, status, Query
 from pydantic import BaseModel, Field
 
-from ..deps import ServicesDep, CurrentUser, SportDep
+from ..deps import ServicesDep, CurrentUser, SportDep, ensure_beyond_api
 
 router = APIRouter()
 
@@ -38,7 +38,8 @@ class MemberResponse(BaseModel):
     is_titular: bool
     usage: int
     limit: int
-    has_active_booking: bool = False
+    has_booking: bool = False
+    has_preferences: bool = False
 
 
 class MemberDetailResponse(MemberResponse):
@@ -70,15 +71,8 @@ async def list_members(
     # Set sport context
     services.context.set_sport(sport)
 
-    # Initialize Beyond API auth if needed
-    if not services.context.api:
-        try:
-            services.auth.initialize(use_cached=True)
-        except Exception as e:
-            raise HTTPException(
-                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                detail=f"Beyond API not available: {str(e)}"
-            )
+    # Initialize Beyond API using user's tokens (no auto-SMS)
+    ensure_beyond_api(services, current_user)
 
     # Get members
     members = services.members.get_members(force_refresh=refresh)
@@ -95,6 +89,9 @@ async def list_members(
 
     result = []
     for m in members:
+        # Check if member has preferences
+        has_prefs = services.members.get_member_preferences(m.member_id, sport) is not None
+
         result.append(MemberResponse(
             member_id=m.member_id,
             name=m.name,
@@ -102,7 +99,8 @@ async def list_members(
             is_titular=m.is_titular,
             usage=m.usage,
             limit=m.limit,
-            has_active_booking=m.member_id in booked_member_ids
+            has_booking=m.member_id in booked_member_ids,
+            has_preferences=has_prefs
         ))
 
         # Sync to graph
@@ -158,9 +156,9 @@ async def get_member(
         }
 
     # Check booking status
-    has_booking = False
+    has_booking_flag = False
     try:
-        has_booking = services.bookings.has_active_booking(member_id)
+        has_booking_flag = services.bookings.has_active_booking(member_id)
     except Exception:
         pass
 
@@ -171,7 +169,8 @@ async def get_member(
         is_titular=member.is_titular,
         usage=member.usage,
         limit=member.limit,
-        has_active_booking=has_booking,
+        has_booking=has_booking_flag,
+        has_preferences=prefs is not None,
         preferences=prefs_dict
     )
 

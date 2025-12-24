@@ -30,7 +30,10 @@ export interface Member {
   social_name: string;
   is_titular: boolean;
   has_booking: boolean;
+  has_active_booking?: boolean;
   has_preferences: boolean;
+  usage: number;
+  limit: number;
 }
 
 export interface SessionPreference {
@@ -63,6 +66,7 @@ export interface AvailabilityResponse {
   slots: AvailableSlot[];
   sport: string;
   total: number;
+  from_cache: boolean;
   cache_valid: boolean;
   cache_updated_at?: string;
 }

@@ -1,5 +1,3 @@
-version: '3.8'
-
 services:
   # FastAPI Backend
   api:
@@ -13,6 +11,7 @@ services:
     volumes:
       - ./data:/app/data
       - ./.env:/app/.env:ro
+      - ./.beyondtheclub_availability.json:/app/.beyondtheclub_availability.json
     environment:
       - PYTHONPATH=/app
     networks:
