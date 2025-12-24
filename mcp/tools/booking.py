@@ -140,6 +140,152 @@ async def cancel_booking(voucher_code: str) -> str:
         return f"❌ Erro ao cancelar reserva: {str(e)}"
 
 
+async def swap_booking(
+    voucher_code: str,
+    new_member_name: str,
+    sport: str = "surf"
+) -> str:
+    """
+    Swap a booking to a different member.
+
+    Captures all details from the original booking, cancels it,
+    and creates a new booking for the new member with the same details.
+
+    Args:
+        voucher_code: Current booking voucher code
+        new_member_name: Name of the new member to transfer to
+        sport: Sport type
+
+    Returns:
+        Swap result as formatted string
+    """
+    from src.services import AvailableSlot
+    from src.packages import get_package_ids
+
+    services = get_services()
+    services.context.set_sport(sport)
+
+    # Ensure API is initialized
+    if not services.context.api:
+        services.auth.initialize(use_cached=True)
+
+    # Find new member
+    new_member = services.members.get_member_by_name(new_member_name)
+    if not new_member:
+        return f"❌ Membro '{new_member_name}' não encontrado. Use get_members para ver a lista."
+
+    # Check if new member already has booking
+    if services.bookings.has_active_booking(new_member.member_id):
+        return f"❌ {new_member.social_name} já possui um agendamento ativo."
+
+    # === STEP 1: Get original booking details ===
+    bookings = services.bookings.list_bookings()
+    original = None
+    for b in bookings:
+        if b.get("voucherCode") == voucher_code:
+            original = b
+            break
+
+    if not original:
+        return f"❌ Reserva {voucher_code} não encontrada."
+
+    # Extract all booking details
+    old_member_info = original.get("member", {})
+    old_member_name = old_member_info.get("socialName", "N/A")
+    old_member_id = old_member_info.get("memberId")
+
+    invitation = original.get("invitation", {})
+
+    # Get tags from booking root first, then fallback to invitation
+    tags = original.get("tags", [])
+    if not tags:
+        tags = invitation.get("tags", [])
+
+    # Extract level and wave_side from tags
+    level = None
+    wave_side = None
+    for tag in tags:
+        if "Iniciante" in tag or "Intermediario" in tag or "Avançado" in tag or "Avancado" in tag:
+            level = tag
+        elif "Lado_" in tag:
+            wave_side = tag
+
+    # Extract date
+    date = invitation.get("date", "").split("T")[0]
+
+    # Extract interval from begin field (most reliable)
+    begin = invitation.get("begin", "")
+    interval = begin[:5] if len(str(begin)) >= 5 else begin
+    if not interval:
+        interval = invitation.get("interval", "")
+
+    # Validate we have all required details
+    if not level or not wave_side:
+        return f"❌ Não foi possível extrair level/wave_side da reserva. Tags: {tags}"
+
+    if not date or not interval:
+        return f"❌ Não foi possível extrair data/horário da reserva."
+
+    # === STEP 2: Get package IDs directly (no cache dependency) ===
+    pkg_info = get_package_ids(level, wave_side, sport)
+    if not pkg_info:
+        return f"❌ Pacote não encontrado para {level}/{wave_side}."
+
+    # === STEP 3: Create slot with all details ===
+    slot = AvailableSlot(
+        date=date,
+        interval=interval,
+        level=level,
+        wave_side=wave_side,
+        available=1,  # Slot will be available after cancel
+        max_quantity=6,
+        package_id=pkg_info.package_id,
+        product_id=pkg_info.product_id
+    )
+
+    # === STEP 4: Execute swap (cancel + create) ===
+    try:
+        result = services.bookings.swap_booking(
+            voucher_code=voucher_code,
+            new_member_id=new_member.member_id,
+            slot=slot
+        )
+
+        new_voucher = result.get("voucherCode", "N/A")
+        new_access = result.get("accessCode", result.get("invitation", {}).get("accessCode", "N/A"))
+
+        # Update graph
+        services.graph.cancel_booking(voucher_code)
+        services.graph.sync_booking(
+            voucher=new_voucher,
+            access_code=new_access,
+            member_id=new_member.member_id,
+            date=date,
+            interval=interval,
+            level=level,
+            wave_side=wave_side
+        )
+
+        # Refresh members cache
+        services.members.refresh_members()
+
+        return f"""✅ Swap realizado com sucesso!
+
+📋 Reserva Original:
+• Membro: {old_member_name}
+• Voucher: {voucher_code}
+
+📋 Nova Reserva:
+• Membro: {new_member.social_name}
+• Data: {date} às {interval}
+• Sessão: {level}/{wave_side}
+• Novo Voucher: {new_voucher}
+• Código de acesso: {new_access}"""
+
+    except Exception as e:
+        return f"❌ Erro ao fazer swap: {str(e)}"
+
+
 async def list_bookings(
     member_name: Optional[str] = None,
     sport: str = "surf"

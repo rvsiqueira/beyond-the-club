@@ -16,8 +16,19 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY src/ ./src/
 COPY api/ ./api/
 
-# Create data directory (will be mounted as volume)
-RUN mkdir -p /app/data
+# Copy entrypoint script
+COPY docker-entrypoint.sh /docker-entrypoint.sh
+RUN chmod +x /docker-entrypoint.sh
+
+# Create data directory and initialize empty cache files
+RUN mkdir -p /app/data && \
+    echo '{}' > /app/.beyondtheclub_tokens.json && \
+    echo '{}' > /app/.beyondtheclub_members.json && \
+    echo '{}' > /app/.beyondtheclub_availability.json && \
+    echo '{}' > /app/.beyondtheclub_preferences.json && \
+    echo '{}' > /app/data/users.json && \
+    echo '{}' > /app/data/graph.json && \
+    echo '{}' > /app/data/.beyondtheclub_user_tokens.json
 
 # Environment variables
 ENV PYTHONUNBUFFERED=1
@@ -30,6 +41,9 @@ EXPOSE 8000
 # Health check
 HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
     CMD python -c "import httpx; httpx.get('http://localhost:8000/api/v1/system/status')" || exit 1
+
+# Use entrypoint to ensure cache files exist
+ENTRYPOINT ["/docker-entrypoint.sh"]
 
 # Run the API
 CMD ["uvicorn", "api.main:app", "--host", "0.0.0.0", "--port", "8000"]

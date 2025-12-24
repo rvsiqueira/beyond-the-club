@@ -17,7 +17,7 @@ from mcp.types import (
     ResourceTemplate,
 )
 
-from .tools import booking, availability, members, monitor
+from .tools import booking, availability, members, monitor, auth
 from .resources import context
 
 logger = logging.getLogger(__name__)
@@ -32,6 +32,68 @@ server = Server("beyond-the-club")
 async def list_tools() -> list[Tool]:
     """List all available tools."""
     tools = []
+
+    # Authentication tools (use these first!)
+    tools.extend([
+        Tool(
+            name="check_auth_status",
+            description="Check if a phone number has valid Beyond API authentication. USE THIS FIRST before calling other tools to verify the user can access the system.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "phone": {
+                        "type": "string",
+                        "description": "Phone number to check (e.g., '+5511999999999')"
+                    }
+                },
+                "required": ["phone"]
+            }
+        ),
+        Tool(
+            name="request_beyond_sms",
+            description="Request an SMS verification code for Beyond API authentication. Sends a 6-digit code to the phone number. Save the session_info for verify_beyond_sms.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "phone": {
+                        "type": "string",
+                        "description": "Phone number to send SMS to (e.g., '+5511999999999')"
+                    }
+                },
+                "required": ["phone"]
+            }
+        ),
+        Tool(
+            name="verify_beyond_sms",
+            description="Verify the SMS code and complete Beyond API authentication. After success, the user can use all booking features.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "phone": {
+                        "type": "string",
+                        "description": "Phone number that received the SMS"
+                    },
+                    "code": {
+                        "type": "string",
+                        "description": "6-digit code from SMS"
+                    },
+                    "session_info": {
+                        "type": "string",
+                        "description": "Session info from request_beyond_sms (optional, auto-retrieved)"
+                    }
+                },
+                "required": ["phone", "code"]
+            }
+        ),
+        Tool(
+            name="get_authenticated_phones",
+            description="Get a list of all phones with valid Beyond authentication.",
+            inputSchema={
+                "type": "object",
+                "properties": {}
+            }
+        ),
+    ])
 
     # Availability tools
     tools.extend([
@@ -146,6 +208,29 @@ async def list_tools() -> list[Tool]:
                 }
             }
         ),
+        Tool(
+            name="swap_booking",
+            description="Swap a booking to a different member. Cancels the original and creates a new booking for the new member.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "voucher_code": {
+                        "type": "string",
+                        "description": "Current booking voucher code"
+                    },
+                    "new_member_name": {
+                        "type": "string",
+                        "description": "Name of the new member to transfer the booking to"
+                    },
+                    "sport": {
+                        "type": "string",
+                        "description": "Sport type: 'surf' or 'tennis'",
+                        "default": "surf"
+                    }
+                },
+                "required": ["voucher_code", "new_member_name"]
+            }
+        ),
     ])
 
     # Member tools
@@ -167,6 +252,66 @@ async def list_tools() -> list[Tool]:
         Tool(
             name="get_member_preferences",
             description="Get a specific member's session preferences.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "member_name": {
+                        "type": "string",
+                        "description": "Member's name"
+                    },
+                    "sport": {
+                        "type": "string",
+                        "description": "Sport context: 'surf' or 'tennis'",
+                        "default": "surf"
+                    }
+                },
+                "required": ["member_name"]
+            }
+        ),
+        Tool(
+            name="set_member_preferences",
+            description="Set session preferences for a member. Use this to add or update preferred levels, wave sides, hours, and dates.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "member_name": {
+                        "type": "string",
+                        "description": "Member's name"
+                    },
+                    "sessions": {
+                        "type": "array",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "level": {"type": "string", "description": "Level (e.g., 'Avançado2', 'Intermediario1')"},
+                                "wave_side": {"type": "string", "description": "Wave side (e.g., 'Lado_direito', 'Lado_esquerdo')"},
+                                "court": {"type": "string", "description": "Court (for tennis)"}
+                            }
+                        },
+                        "description": "List of session preferences. Example: [{\"level\": \"Avançado2\", \"wave_side\": \"Lado_direito\"}]"
+                    },
+                    "target_hours": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "Preferred hours (e.g., ['08:00', '09:00'])"
+                    },
+                    "target_dates": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "Target dates (YYYY-MM-DD format)"
+                    },
+                    "sport": {
+                        "type": "string",
+                        "description": "Sport context: 'surf' or 'tennis'",
+                        "default": "surf"
+                    }
+                },
+                "required": ["member_name", "sessions"]
+            }
+        ),
+        Tool(
+            name="delete_member_preferences",
+            description="Delete all preferences for a member.",
             inputSchema={
                 "type": "object",
                 "properties": {
@@ -233,7 +378,17 @@ async def list_tools() -> list[Tool]:
 async def call_tool(name: str, arguments: dict[str, Any]) -> list[TextContent]:
     """Handle tool calls."""
     try:
-        if name == "check_availability":
+        # Authentication tools
+        if name == "check_auth_status":
+            result = await auth.check_auth_status(**arguments)
+        elif name == "request_beyond_sms":
+            result = await auth.request_beyond_sms(**arguments)
+        elif name == "verify_beyond_sms":
+            result = await auth.verify_beyond_sms(**arguments)
+        elif name == "get_authenticated_phones":
+            result = await auth.get_authenticated_phone()
+        # Availability tools
+        elif name == "check_availability":
             result = await availability.check_availability(**arguments)
         elif name == "scan_availability":
             result = await availability.scan_availability(**arguments)
@@ -243,10 +398,16 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> list[TextContent]:
             result = await booking.cancel_booking(**arguments)
         elif name == "list_bookings":
             result = await booking.list_bookings(**arguments)
+        elif name == "swap_booking":
+            result = await booking.swap_booking(**arguments)
         elif name == "get_members":
             result = await members.get_members(**arguments)
         elif name == "get_member_preferences":
             result = await members.get_member_preferences(**arguments)
+        elif name == "set_member_preferences":
+            result = await members.set_member_preferences(**arguments)
+        elif name == "delete_member_preferences":
+            result = await members.delete_member_preferences(**arguments)
         elif name == "start_auto_monitor":
             result = await monitor.start_auto_monitor(**arguments)
         elif name == "check_monitor_status":
@@ -267,6 +428,12 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> list[TextContent]:
 async def list_resources() -> list[Resource]:
     """List available resources."""
     return [
+        Resource(
+            uri="beyond://auth",
+            name="Authentication Status",
+            description="All authenticated phones and their token status",
+            mimeType="application/json"
+        ),
         Resource(
             uri="beyond://members",
             name="Members",
@@ -297,7 +464,9 @@ async def list_resources() -> list[Resource]:
 @server.read_resource()
 async def read_resource(uri: str) -> str:
     """Read a resource."""
-    if uri == "beyond://members":
+    if uri == "beyond://auth":
+        return await context.get_auth_resource()
+    elif uri == "beyond://members":
         return await context.get_members_resource()
     elif uri == "beyond://bookings":
         return await context.get_bookings_resource()
