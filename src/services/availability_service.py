@@ -394,6 +394,83 @@ class AvailabilityService(BaseService):
 
         return None
 
+    def refresh_slot_availability(
+        self,
+        date: str,
+        interval: str,
+        level: str,
+        wave_side: str,
+        member_id: int
+    ) -> Optional[int]:
+        """
+        Refresh availability for a specific slot in the cache.
+
+        Called after booking/cancel to update just the affected slot.
+
+        Args:
+            date: Date of the slot (YYYY-MM-DD)
+            interval: Time interval (e.g., "08:00")
+            level: Level (e.g., "Iniciante2")
+            wave_side: Wave side (e.g., "Lado_esquerdo")
+            member_id: Member ID for the API query
+
+        Returns:
+            New available quantity or None if error
+        """
+        self.require_initialized()
+
+        sport_config = self.sport_config
+        tags = list(sport_config.base_tags) + [level, wave_side]
+        combo_key = f"{level}/{wave_side}"
+
+        try:
+            # Get intervals for this date/combo
+            intervals_data = self.api.get_intervals(
+                date=date,
+                tags=tags,
+                member_id=member_id,
+                sport=self.current_sport
+            )
+
+            packages_list = intervals_data if isinstance(intervals_data, list) else []
+            new_available = None
+
+            for package in packages_list:
+                products = package.get("products", [])
+
+                for product in products:
+                    invitation = product.get("invitation", {})
+                    solos = invitation.get("solos", [])
+
+                    for solo in solos:
+                        if solo.get("interval") == interval:
+                            new_available = solo.get("availableQuantity", 0)
+                            break
+
+            if new_available is not None:
+                # Update cache
+                cache = self._load_cache()
+
+                if date in cache.get("dates", {}):
+                    if combo_key in cache["dates"][date]:
+                        for slot_data in cache["dates"][date][combo_key]:
+                            if slot_data.get("interval") == interval:
+                                old_available = slot_data.get("available", 0)
+                                slot_data["available"] = new_available
+                                logger.info(
+                                    f"Updated availability for {date} {interval} {combo_key}: "
+                                    f"{old_available} -> {new_available}"
+                                )
+                                break
+
+                self._save_cache(cache)
+
+            return new_available
+
+        except Exception as e:
+            logger.error(f"Error refreshing slot availability for {date} {interval} {combo_key}: {e}")
+            return None
+
     def filter_slots(
         self,
         slots: List[AvailableSlot],

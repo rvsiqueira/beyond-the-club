@@ -12,7 +12,7 @@ from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
-from apscheduler.triggers.interval import IntervalTrigger
+from apscheduler.triggers.cron import CronTrigger
 
 from .v1.router import router as v1_router
 from .deps import get_services, close_services
@@ -85,13 +85,13 @@ async def lifespan(app: FastAPI) -> AsyncGenerator:
     scheduler = AsyncIOScheduler()
     scheduler.add_job(
         refresh_availability_cache,
-        trigger=IntervalTrigger(hours=1),
+        trigger=CronTrigger(minute=0),  # Run at minute 0 of every hour (00:00, 01:00, etc.)
         id="availability_refresh",
-        name="Refresh availability cache every hour",
+        name="Refresh availability cache every hour at :00",
         replace_existing=True
     )
     scheduler.start()
-    logger.info(f"Background scheduler started - availability refresh every hour using {ADMIN_PHONE}")
+    logger.info(f"Background scheduler started - availability refresh at every hour :00 using {ADMIN_PHONE}")
 
     yield
 

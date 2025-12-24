@@ -209,6 +209,16 @@ async def create_booking(
     # Force refresh members cache to update usage counts
     services.members.refresh_members()
 
+    # Refresh availability for this specific slot
+    if request.level and request.wave_side:
+        services.availability.refresh_slot_availability(
+            date=request.date,
+            interval=request.interval,
+            level=request.level,
+            wave_side=request.wave_side,
+            member_id=request.member_id
+        )
+
     return BookingResponse(
         voucher_code=voucher,
         access_code=access,
@@ -297,6 +307,35 @@ async def cancel_booking(
     # Initialize Beyond API using user's tokens (no auto-SMS)
     ensure_beyond_api(services, current_user)
 
+    # Get booking details before canceling (for slot refresh)
+    bookings = services.bookings.list_bookings()
+    booking_info = None
+    for b in bookings:
+        if b.get("voucherCode") == voucher_code:
+            invitation = b.get("invitation", {})
+            member = b.get("member", {})
+            tags = b.get("tags", []) or invitation.get("tags", [])
+
+            begin = invitation.get("begin", "")
+            interval = begin[:5] if len(str(begin)) >= 5 else begin
+
+            level = None
+            wave_side = None
+            for tag in tags:
+                if "Iniciante" in tag or "Intermediario" in tag or "Avançado" in tag or "Avancado" in tag:
+                    level = tag
+                elif "Lado_" in tag:
+                    wave_side = tag
+
+            booking_info = {
+                "date": invitation.get("date", "").split("T")[0],
+                "interval": interval,
+                "level": level,
+                "wave_side": wave_side,
+                "member_id": member.get("memberId")
+            }
+            break
+
     try:
         result = services.bookings.cancel_booking(voucher_code)
     except Exception as e:
@@ -310,6 +349,16 @@ async def cancel_booking(
 
     # Force refresh members cache to update usage counts
     services.members.refresh_members()
+
+    # Refresh availability for this specific slot
+    if booking_info and booking_info.get("level") and booking_info.get("wave_side"):
+        services.availability.refresh_slot_availability(
+            date=booking_info["date"],
+            interval=booking_info["interval"],
+            level=booking_info["level"],
+            wave_side=booking_info["wave_side"],
+            member_id=booking_info["member_id"]
+        )
 
     return {"success": True, "voucher_code": voucher_code, "result": result}
 
