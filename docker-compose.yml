@@ -11,6 +11,8 @@ services:
     volumes:
       # Data directory for persistent storage
       - ./data:/app/data
+      # Scripts directory
+      - ./scripts:/app/scripts:ro
       # Environment file
       - ./.env:/app/.env:ro
       # Cache files directory (created by init-cache.sh)
