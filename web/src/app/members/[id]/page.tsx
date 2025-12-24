@@ -2,11 +2,35 @@
 
 import { useState, useCallback, useEffect, useRef } from 'react';
 import { useParams, useRouter } from 'next/navigation';
-import { ArrowLeft, Trash2, Plus, GraduationCap, Waves, ArrowUp, ArrowDown, Check, Pencil, X } from 'lucide-react';
+import { ArrowLeft, Trash2, Plus, GraduationCap, Waves, ArrowUp, ArrowDown, Check, Pencil, X, Copy } from 'lucide-react';
 import { MainLayout } from '@/components/layout';
 import { Card, CardContent, CardHeader, CardTitle, Button } from '@/components/ui';
-import { useMember, useMemberPreferences, useUpdatePreferences, useDeletePreferences } from '@/hooks';
+import { useMember, useMemberPreferences, useUpdatePreferences, useDeletePreferences, useBookings } from '@/hooks';
 import { useAuthStore } from '@/lib/store';
+import { formatDate } from '@/lib/utils';
+
+// Wave images by level
+const getWaveBackground = (level?: string) => {
+  if (level?.startsWith('Iniciante')) {
+    return '/wave-levels/beginner-1.jpg';
+  } else if (level?.startsWith('Intermediario')) {
+    return '/wave-levels/intermediate-1.jpg';
+  } else {
+    return '/wave-levels/advanced-1.jpg';
+  }
+};
+
+// Format level for display
+const formatLevel = (level?: string) => {
+  if (!level) return '';
+  return level.replace('Iniciante', 'Iniciante ').replace('Intermediario', 'Intermediário ').replace('Avançado', 'Avançado ').trim();
+};
+
+// Format wave side for display
+const formatWaveSide = (waveSide?: string) => {
+  if (!waveSide) return '';
+  return waveSide.replace('Lado_', '').replace('esquerdo', 'Esquerdo').replace('direito', 'Direito');
+};
 
 // Wave levels with visual configuration
 const LEVELS = [
@@ -37,8 +61,25 @@ export default function MemberDetailPage() {
 
   const { data: member, isLoading: memberLoading } = useMember(memberId);
   const { data: preferences, isLoading: prefsLoading } = useMemberPreferences(memberId);
+  const { data: bookingsData } = useBookings();
   const updateMutation = useUpdatePreferences(memberId);
   const deleteMutation = useDeletePreferences(memberId);
+
+  // Find the member's next booking
+  const memberBooking = bookingsData?.bookings.find(b => b.member_id === memberId);
+  const [copiedCode, setCopiedCode] = useState<string | null>(null);
+
+  const copyToClipboard = (text: string, codeId: string) => {
+    navigator.clipboard.writeText(text);
+    setCopiedCode(codeId);
+    setTimeout(() => setCopiedCode(null), 2000);
+  };
+
+  // Calculate days until booking
+  const getDaysLabel = (date: string) => {
+    const daysUntil = Math.ceil((new Date(date).getTime() - new Date().setHours(0,0,0,0)) / (1000 * 60 * 60 * 24));
+    return daysUntil === 0 ? 'Hoje' : daysUntil === 1 ? 'Amanhã' : `Em ${daysUntil} dias`;
+  };
 
   const [sessions, setSessions] = useState<PreferenceSession[]>([]);
   const [expandedSession, setExpandedSession] = useState<number | null>(null);
@@ -237,6 +278,100 @@ export default function MemberDetailPage() {
               </div>
             </div>
           </div>
+
+          {/* Next Booking Card */}
+          {memberBooking && (
+            <div className="relative rounded-2xl overflow-hidden shadow-lg">
+              {/* Background Image */}
+              <div
+                className="absolute inset-0 bg-cover bg-center"
+                style={{ backgroundImage: `url(${getWaveBackground(memberBooking.level)})` }}
+              />
+              {/* Gradient Overlay */}
+              <div className="absolute inset-0 bg-gradient-to-t from-black/90 via-black/50 to-black/30" />
+
+              {/* Content */}
+              <div className="relative p-5 min-h-[180px] flex flex-col justify-between">
+                {/* Top Row */}
+                <div className="flex items-start justify-between">
+                  {/* Days Badge */}
+                  <span className="px-3 py-1.5 bg-white/95 backdrop-blur-sm rounded-full text-xs font-bold text-gray-800 shadow-sm">
+                    {getDaysLabel(memberBooking.date)}
+                  </span>
+
+                  {/* X icon */}
+                  <div className="p-2 bg-white/20 backdrop-blur-sm rounded-full">
+                    <X className="h-4 w-4 text-white" />
+                  </div>
+                </div>
+
+                {/* Bottom Content */}
+                <div>
+                  {/* Date & Time */}
+                  <p className="text-white/80 text-sm mb-1">
+                    {formatDate(memberBooking.date)} · {memberBooking.interval}
+                  </p>
+
+                  {/* Member Name */}
+                  <h3 className="text-white text-2xl font-bold mb-2">
+                    {memberBooking.member_name}
+                  </h3>
+
+                  {/* Tags */}
+                  <div className="flex flex-wrap gap-2 mb-3">
+                    {memberBooking.level && (
+                      <span className="px-2.5 py-1 bg-white/20 backdrop-blur-sm rounded-full text-xs font-semibold text-white flex items-center gap-1">
+                        <GraduationCap className="h-3 w-3" />
+                        {formatLevel(memberBooking.level)}
+                      </span>
+                    )}
+                    {memberBooking.wave_side && (
+                      <span className="px-2.5 py-1 bg-white/20 backdrop-blur-sm rounded-full text-xs font-semibold text-white flex items-center gap-1">
+                        <Waves className="h-3 w-3" />
+                        {formatWaveSide(memberBooking.wave_side)}
+                      </span>
+                    )}
+                  </div>
+
+                  {/* Codes */}
+                  <div className="flex items-center gap-3 pt-3 border-t border-white/20">
+                    <div className="flex-1">
+                      <p className="text-white/60 text-[10px] uppercase tracking-wider mb-0.5">Voucher</p>
+                      <div className="flex items-center gap-1">
+                        <code className="text-white text-xs font-mono font-medium">{memberBooking.voucher_code}</code>
+                        <button
+                          onClick={() => copyToClipboard(memberBooking.voucher_code, 'voucher')}
+                          className="p-1 hover:bg-white/20 rounded transition-colors"
+                        >
+                          {copiedCode === 'voucher' ? (
+                            <Check className="h-3 w-3 text-green-400" />
+                          ) : (
+                            <Copy className="h-3 w-3 text-white/60" />
+                          )}
+                        </button>
+                      </div>
+                    </div>
+                    <div className="flex-1">
+                      <p className="text-white/60 text-[10px] uppercase tracking-wider mb-0.5">Acesso</p>
+                      <div className="flex items-center gap-1">
+                        <code className="text-white text-xs font-mono font-medium">{memberBooking.access_code}</code>
+                        <button
+                          onClick={() => copyToClipboard(memberBooking.access_code, 'access')}
+                          className="p-1 hover:bg-white/20 rounded transition-colors"
+                        >
+                          {copiedCode === 'access' ? (
+                            <Check className="h-3 w-3 text-green-400" />
+                          ) : (
+                            <Copy className="h-3 w-3 text-white/60" />
+                          )}
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
 
           {/* Preferences */}
           <Card>
