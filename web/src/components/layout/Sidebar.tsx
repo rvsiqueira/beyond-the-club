@@ -1,6 +1,7 @@
 'use client';
 
 import Link from 'next/link';
+import Image from 'next/image';
 import { usePathname } from 'next/navigation';
 import {
   LayoutDashboard,
@@ -39,11 +40,22 @@ export function Sidebar() {
       {/* Logo */}
       <div className="flex h-16 items-center justify-between px-4 border-b border-gray-800">
         <Link href="/dashboard" className="flex items-center gap-3">
-          <div className="w-10 h-10 bg-primary-500 rounded-lg flex items-center justify-center">
-            <span className="text-white font-bold text-lg">B</span>
-          </div>
-          {sidebarOpen && (
-            <span className="text-white font-semibold text-lg">BeyondClub</span>
+          {sidebarOpen ? (
+            <Image
+              src="/logo.webp"
+              alt="Beyond The Club"
+              width={160}
+              height={40}
+              className="object-contain"
+            />
+          ) : (
+            <Image
+              src="/icon.png"
+              alt="Beyond The Club"
+              width={32}
+              height={32}
+              className="object-contain"
+            />
           )}
         </Link>
         <button
