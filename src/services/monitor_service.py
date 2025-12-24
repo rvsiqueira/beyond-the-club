@@ -393,6 +393,15 @@ class MonitorService(BaseService):
                 )
 
                 if slot:
+                    # Validate that the slot matches the exact date and hour requested
+                    if slot.date != target_date:
+                        status_update(f"Slot retornado com data diferente: {slot.date} (esperado: {target_date})", "warning")
+                        slot = None
+                    elif slot.interval != target_hour:
+                        status_update(f"Slot retornado com horário diferente: {slot.interval} (esperado: {target_hour})", "warning")
+                        slot = None
+
+                if slot:
                     status_update(f"Slot encontrado! {slot.date} {slot.interval} ({slot.combo_key})")
 
                     if auto_book:
@@ -437,8 +446,8 @@ class MonitorService(BaseService):
                             "member_name": member.social_name,
                             "member_id": member_id
                         }
-                else:
-                    status_update(f"Nenhum slot disponível para {combo_key} em {target_date} às {target_hour}")
+                if not slot:
+                    status_update(f"Sessão não disponível: {combo_key} | {target_date} | {target_hour}")
 
             except Exception as e:
                 status_update(f"Erro ao buscar slot: {e}", "error")
