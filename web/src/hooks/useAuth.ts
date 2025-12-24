@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import { api } from '@/lib/api';
 import { useAuthStore } from '@/lib/store';
@@ -12,7 +12,20 @@ export function useAuth() {
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
+  // Logout function that redirects to login
+  const logout = useCallback(() => {
+    api.logout();
+    storeLogout();
+    router.push('/login');
+  }, [router, storeLogout]);
+
   useEffect(() => {
+    // Set up global auth error handler to redirect on invalid/expired token
+    api.setAuthErrorHandler(() => {
+      storeLogout();
+      router.push('/login?expired=true');
+    });
+
     const checkAuth = async () => {
       const token = api.getToken();
       if (token && !user) {
@@ -28,7 +41,7 @@ export function useAuth() {
     };
 
     checkAuth();
-  }, [user, setUser, storeLogout]);
+  }, [user, setUser, storeLogout, router]);
 
   const login = async (data: LoginRequest) => {
     setError(null);
@@ -60,12 +73,6 @@ export function useAuth() {
     } finally {
       setIsLoading(false);
     }
-  };
-
-  const logout = () => {
-    api.logout();
-    storeLogout();
-    router.push('/login');
   };
 
   return {
