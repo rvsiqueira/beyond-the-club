@@ -379,7 +379,7 @@ async def list_tools() -> list[Tool]:
         ),
         Tool(
             name="search_session",
-            description="Search and book a SPECIFIC session. Unlike start_auto_monitor (which uses member preferences), this allows selecting exact: level, date, hour, and optionally wave side. Each level has fixed valid hours.",
+            description="MONITOR and book a specific session over time. Use this when the user wants to keep checking until a slot becomes available. For immediate availability check, use check_session_availability instead.",
             inputSchema={
                 "type": "object",
                 "properties": {
@@ -420,6 +420,76 @@ async def list_tools() -> list[Tool]:
                     }
                 },
                 "required": ["member_name", "level", "target_date", "target_hour"]
+            }
+        ),
+        Tool(
+            name="check_session_availability",
+            description="Check what sessions are available RIGHT NOW for a level/date. Returns all available slots so the user can choose. Use this first, then book_specific_slot to book, or search_session to monitor.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "member_name": {
+                        "type": "string",
+                        "description": "Member's name to check for"
+                    },
+                    "level": {
+                        "type": "string",
+                        "description": "Session level (Iniciante1, Iniciante2, Intermediario1, Intermediario2, Avançado1, Avançado2)"
+                    },
+                    "target_date": {
+                        "type": "string",
+                        "description": "Target date (YYYY-MM-DD format)"
+                    },
+                    "wave_side": {
+                        "type": "string",
+                        "description": "Wave side (optional - checks both if not specified)"
+                    },
+                    "target_hour": {
+                        "type": "string",
+                        "description": "Target hour (optional - checks all valid hours if not specified)"
+                    },
+                    "sport": {
+                        "type": "string",
+                        "description": "Sport type",
+                        "default": "surf"
+                    }
+                },
+                "required": ["member_name", "level", "target_date"]
+            }
+        ),
+        Tool(
+            name="book_specific_slot",
+            description="Book a specific slot IMMEDIATELY. Use after check_session_availability when user has chosen a slot. Requires all parameters (no monitoring).",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "member_name": {
+                        "type": "string",
+                        "description": "Member's name to book for"
+                    },
+                    "level": {
+                        "type": "string",
+                        "description": "Session level"
+                    },
+                    "wave_side": {
+                        "type": "string",
+                        "description": "Wave side: 'Lado_esquerdo' or 'Lado_direito'"
+                    },
+                    "target_date": {
+                        "type": "string",
+                        "description": "Date (YYYY-MM-DD)"
+                    },
+                    "target_hour": {
+                        "type": "string",
+                        "description": "Hour (HH:MM)"
+                    },
+                    "sport": {
+                        "type": "string",
+                        "description": "Sport type",
+                        "default": "surf"
+                    }
+                },
+                "required": ["member_name", "level", "wave_side", "target_date", "target_hour"]
             }
         ),
     ])
@@ -469,6 +539,10 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> list[TextContent]:
             result = await monitor.get_session_options()
         elif name == "search_session":
             result = await monitor.search_session(**arguments)
+        elif name == "check_session_availability":
+            result = await monitor.check_session_availability(**arguments)
+        elif name == "book_specific_slot":
+            result = await monitor.book_specific_slot(**arguments)
         else:
             result = f"Unknown tool: {name}"
 

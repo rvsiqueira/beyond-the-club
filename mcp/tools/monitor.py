@@ -353,3 +353,189 @@ async def search_session(
     except Exception as e:
         _monitor_state["running"] = False
         return f"❌ Erro na busca: {str(e)}"
+
+
+async def check_session_availability(
+    member_name: str,
+    level: str,
+    target_date: str,
+    wave_side: Optional[str] = None,
+    target_hour: Optional[str] = None,
+    sport: str = "surf"
+) -> str:
+    """
+    Check availability for a session (single check, no monitoring).
+
+    Use this to find available slots and present options to the user.
+    Returns all available slots so the user can choose which one to book.
+
+    Args:
+        member_name: Name of the member to check for
+        level: Session level (Iniciante1, Iniciante2, etc.)
+        target_date: Target date (YYYY-MM-DD format)
+        wave_side: Wave side (optional - checks both if not specified)
+        target_hour: Target hour (optional - checks all valid hours if not specified)
+        sport: Sport type (default: "surf")
+
+    Returns:
+        List of available slots for the user to choose from
+    """
+    # Validate level
+    valid_hours = get_valid_hours_for_level(level)
+    if not valid_hours:
+        return f"❌ Nível inválido: {level}\n\nNíveis válidos: {', '.join(SESSION_FIXED_HOURS.keys())}"
+
+    # Validate hour if provided
+    if target_hour and target_hour not in valid_hours:
+        return f"❌ Horário {target_hour} inválido para {level}\n\nHorários válidos: {', '.join(valid_hours)}"
+
+    services = get_services()
+    services.context.set_sport(sport)
+
+    # Ensure API is initialized
+    if not services.context.api:
+        services.auth.initialize(use_cached=True)
+
+    # Get member by name
+    member = services.members.get_member_by_name(member_name)
+    if not member:
+        return f"❌ Membro '{member_name}' não encontrado."
+
+    result = services.monitor.check_session_availability(
+        member_id=member.member_id,
+        level=level,
+        target_date=target_date,
+        wave_side=wave_side,
+        target_hour=target_hour
+    )
+
+    if not result.get("success"):
+        return f"❌ Erro: {result.get('error', 'Erro desconhecido')}"
+
+    available_slots = result.get("available_slots", [])
+
+    if not available_slots:
+        checked_hours = result.get("checked_hours", [])
+        checked_sides = result.get("checked_sides", [])
+        lines = [
+            f"❌ Nenhuma sessão disponível\n",
+            f"👤 Membro: {member.social_name}",
+            f"📅 Data: {target_date}",
+            f"🎯 Nível: {level}",
+            f"⏰ Horários verificados: {', '.join(checked_hours)}",
+            f"🌊 Lados verificados: {', '.join(checked_sides)}",
+            "\n💡 Você pode tentar outra data ou usar search_session para monitorar até encontrar."
+        ]
+        return "\n".join(lines)
+
+    # Format available options
+    lines = [
+        f"✅ Sessões disponíveis para {member.social_name}\n",
+        f"📅 Data: {target_date}",
+        f"🎯 Nível: {level}\n",
+        "🌊 Opções encontradas:"
+    ]
+
+    for slot in available_slots:
+        side_name = "Esquerdo" if slot["wave_side"] == "Lado_esquerdo" else "Direito"
+        lines.append(f"  • {slot['hour']} - Lado {side_name} ({slot['available']} vagas)")
+
+    lines.append("\n💡 Para reservar, diga qual horário e lado você prefere.")
+    lines.append("💡 Para monitorar, use search_session com o horário e lado desejados.")
+
+    return "\n".join(lines)
+
+
+async def book_specific_slot(
+    member_name: str,
+    level: str,
+    wave_side: str,
+    target_date: str,
+    target_hour: str,
+    sport: str = "surf"
+) -> str:
+    """
+    Book a specific slot directly (no monitoring, immediate booking).
+
+    Use this after check_session_availability when the user has chosen a slot.
+
+    Args:
+        member_name: Name of the member to book for
+        level: Session level
+        wave_side: Wave side (Lado_esquerdo or Lado_direito)
+        target_date: Date (YYYY-MM-DD)
+        target_hour: Hour (HH:MM)
+        sport: Sport type
+
+    Returns:
+        Booking result
+    """
+    # Validate level
+    valid_hours = get_valid_hours_for_level(level)
+    if not valid_hours:
+        return f"❌ Nível inválido: {level}"
+
+    if target_hour not in valid_hours:
+        return f"❌ Horário {target_hour} inválido para {level}"
+
+    valid_sides = ["Lado_esquerdo", "Lado_direito"]
+    if wave_side not in valid_sides:
+        return f"❌ Lado inválido: {wave_side}"
+
+    services = get_services()
+    services.context.set_sport(sport)
+
+    if not services.context.api:
+        services.auth.initialize(use_cached=True)
+
+    member = services.members.get_member_by_name(member_name)
+    if not member:
+        return f"❌ Membro '{member_name}' não encontrado."
+
+    # Check availability first
+    slot = services.availability.find_slot_for_combo(
+        level=level,
+        wave_side=wave_side,
+        member_id=member.member_id,
+        target_dates=[target_date],
+        target_hours=[target_hour]
+    )
+
+    if not slot or slot.date != target_date or slot.interval != target_hour:
+        return f"❌ Sessão não disponível: {level}/{wave_side} em {target_date} às {target_hour}"
+
+    # Book the slot
+    try:
+        result = services.bookings.create_booking(slot, member.member_id)
+        voucher = result.get("voucherCode", "N/A")
+        access = result.get("accessCode", result.get("invitation", {}).get("accessCode", "N/A"))
+
+        # Sync to graph
+        services.graph.sync_booking(
+            voucher=voucher,
+            access_code=access,
+            member_id=member.member_id,
+            date=slot.date,
+            interval=slot.interval,
+            level=slot.level,
+            wave_side=slot.wave_side
+        )
+
+        side_name = "Esquerdo" if wave_side == "Lado_esquerdo" else "Direito"
+        lines = [
+            "✅ Sessão reservada com sucesso!\n",
+            f"👤 Membro: {member.social_name}",
+            f"📅 Data: {target_date}",
+            f"⏰ Horário: {target_hour}",
+            f"🎯 Nível: {level}",
+            f"🌊 Lado: {side_name}",
+            f"🎫 Voucher: {voucher}",
+            f"🔑 Código de Acesso: {access}"
+        ]
+        return "\n".join(lines)
+
+    except Exception as e:
+        error_msg = str(e)
+        if "ja possui" in error_msg.lower() or "already" in error_msg.lower():
+            return f"❌ {member.social_name} já possui um agendamento ativo."
+        return f"❌ Erro ao reservar: {error_msg}"

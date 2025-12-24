@@ -510,3 +510,102 @@ class MonitorService(BaseService):
             "wave_sides": ["Lado_esquerdo", "Lado_direito"],
             "hours_by_level": SESSION_FIXED_HOURS.copy()
         }
+
+    def check_session_availability(
+        self,
+        member_id: int,
+        level: str,
+        target_date: str,
+        wave_side: Optional[str] = None,
+        target_hour: Optional[str] = None
+    ) -> Dict:
+        """
+        Check availability for a specific session (single check, no monitoring).
+
+        Returns all available slots matching the criteria so the user can choose.
+
+        Args:
+            member_id: Member ID for the query
+            level: Session level (Iniciante1, Iniciante2, etc.)
+            target_date: Target date (YYYY-MM-DD format)
+            wave_side: Wave side (optional - checks both if not specified)
+            target_hour: Target hour (optional - checks all valid hours if not specified)
+
+        Returns:
+            Dict with available slots grouped by side and hour
+        """
+        self.require_initialized()
+
+        # Validate level
+        valid_hours = get_valid_hours_for_level(level)
+        if not valid_hours:
+            return {
+                "success": False,
+                "error": f"Nível inválido: {level}. Níveis válidos: {list(SESSION_FIXED_HOURS.keys())}"
+            }
+
+        # Validate hour if provided
+        if target_hour and target_hour not in valid_hours:
+            return {
+                "success": False,
+                "error": f"Horário {target_hour} inválido para {level}. Horários válidos: {valid_hours}"
+            }
+
+        # Validate wave_side if provided
+        valid_sides = ["Lado_esquerdo", "Lado_direito"]
+        if wave_side and wave_side not in valid_sides:
+            return {
+                "success": False,
+                "error": f"Lado inválido: {wave_side}. Lados válidos: {valid_sides}"
+            }
+
+        # Validate member
+        member = self._member_service.get_member_by_id(member_id)
+        if not member:
+            return {
+                "success": False,
+                "error": f"Membro {member_id} não encontrado"
+            }
+
+        # Determine which sides and hours to check
+        sides_to_check = [wave_side] if wave_side else valid_sides
+        hours_to_check = [target_hour] if target_hour else valid_hours
+
+        available_slots = []
+
+        for side in sides_to_check:
+            for hour in hours_to_check:
+                try:
+                    slot = self._availability_service.find_slot_for_combo(
+                        level=level,
+                        wave_side=side,
+                        member_id=member_id,
+                        target_dates=[target_date],
+                        target_hours=[hour]
+                    )
+
+                    if slot and slot.date == target_date and slot.interval == hour:
+                        available_slots.append({
+                            "level": level,
+                            "wave_side": side,
+                            "date": slot.date,
+                            "hour": slot.interval,
+                            "available": slot.available,
+                            "combo_key": slot.combo_key,
+                            "slot": slot.to_dict()
+                        })
+
+                except Exception as e:
+                    logger.warning(f"Error checking {level}/{side} at {hour}: {e}")
+
+        return {
+            "success": True,
+            "member_id": member_id,
+            "member_name": member.social_name,
+            "level": level,
+            "date": target_date,
+            "checked_sides": sides_to_check,
+            "checked_hours": hours_to_check,
+            "available_slots": available_slots,
+            "total_found": len(available_slots)
+        }
