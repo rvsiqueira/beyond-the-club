@@ -4,3 +4,4 @@ export { useAvailability, useScanAvailability, useAvailableDates } from './useAv
 export { useBookings, useBooking, useCreateBooking, useCancelBooking, useSwapBooking } from './useBookings';
 export { useMonitor, useMonitors, useStartMonitor, useStopMonitor, useMonitorWebSocket } from './useMonitor';
 export { useBeyondTokenStatus } from './useBeyondToken';
+export { useSessionOptions, useStartSessionSearch, useSessionSearchWebSocket } from './useSessionSearch';
