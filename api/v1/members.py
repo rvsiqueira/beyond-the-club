@@ -132,6 +132,9 @@ async def get_member(
     """
     services.context.set_sport(sport)
 
+    # Initialize Beyond API using user's tokens (no auto-SMS)
+    ensure_beyond_api(services, current_user)
+
     member = services.members.get_member_by_id(member_id)
     if not member:
         raise HTTPException(
@@ -161,6 +164,11 @@ async def get_member(
         has_booking_flag = services.bookings.has_active_booking(member_id)
     except Exception:
         pass
+
+    # If has_booking but usage=0, refresh members to get correct usage
+    if has_booking_flag and member.usage == 0:
+        services.members.refresh_members()
+        member = services.members.get_member_by_id(member_id)
 
     return MemberDetailResponse(
         member_id=member.member_id,
