@@ -68,3 +68,6 @@ nginx/ssl/*.csr
 # OS
 .DS_Store
 Thumbs.db
+
+# Nginx
+/nginx/ssl
