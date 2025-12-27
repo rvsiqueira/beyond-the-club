@@ -259,7 +259,11 @@ SportDep = Annotated[str, Depends(get_sport)]
 
 def ensure_beyond_api(services: Services, user: User) -> bool:
     """
-    Ensure Beyond API is initialized for the user.
+    Ensure Beyond API is initialized for the CURRENT user.
+
+    IMPORTANT: Always reinitializes the API with the current user's token.
+    This ensures each user sees only their own data (members, bookings, etc).
+    The API context is per-request, not shared between users.
 
     Uses the user's stored Beyond tokens (from SMS verification modal).
     Does NOT automatically send SMS - requires explicit verification via modal.
@@ -276,15 +280,11 @@ def ensure_beyond_api(services: Services, user: User) -> bool:
     # Set current user in MemberService for per-user caching
     services.members.set_current_user(user.phone)
 
-    # Check if API is already initialized
-    if services.context.api:
-        return True
-
     # Try to use user's Beyond token (from SMS verification)
     user_token = services.beyond_tokens.get_token(user.phone)
 
     if user_token:
-        # Try to use the token (even if expired, we'll try refresh)
+        # ALWAYS initialize with current user's token (don't reuse old context)
         try:
             tokens = FirebaseTokens(
                 id_token=user_token.id_token,
@@ -302,9 +302,10 @@ def ensure_beyond_api(services: Services, user: User) -> bool:
                     user.phone,
                     services.context.firebase_auth._tokens
                 )
+            logger.debug(f"Beyond API initialized for user {user.phone}")
             return True
         except Exception as e:
-            logger.warning(f"Failed to initialize with user tokens: {e}")
+            logger.warning(f"Failed to initialize with user tokens for {user.phone}: {e}")
             # Token might be invalid/refresh failed, delete it
             services.beyond_tokens.delete_token(user.phone)
 
