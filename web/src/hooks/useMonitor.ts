@@ -104,6 +104,12 @@ export function useMonitorWebSocket(monitorId: string | null) {
     }
   }, []);
 
+  const clearMessages = useCallback(() => {
+    setMessages([]);
+    setStatus('idle');
+    setIsConnected(false);
+  }, []);
+
   return {
     messages,
     isConnected,
@@ -111,5 +117,6 @@ export function useMonitorWebSocket(monitorId: string | null) {
     connect,
     disconnect,
     sendStop,
+    clearMessages,
   };
 }

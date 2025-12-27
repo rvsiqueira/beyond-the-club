@@ -134,6 +134,9 @@ class BotConfig:
     check_interval_seconds: int = field(default_factory=lambda: int(os.getenv("CHECK_INTERVAL_SECONDS", "60")))
     max_retries: int = field(default_factory=lambda: int(os.getenv("MAX_RETRIES", "3")))
     auto_book: bool = field(default_factory=lambda: os.getenv("AUTO_BOOK", "true").lower() == "true")
+    # Minimum minutes before session start to consider it bookable
+    # Sessions starting within this time window are ignored
+    session_start_buffer_minutes: int = field(default_factory=lambda: int(os.getenv("SESSION_START_BUFFER_MINUTES", "20")))
 
 
 @dataclass

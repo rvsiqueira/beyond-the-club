@@ -3,14 +3,27 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from '@/lib/api';
 import { useAuthStore } from '@/lib/store';
-import type { MemberPreferences } from '@/types';
+import type { MemberPreferences, Member } from '@/types';
 
 export function useMembers() {
   const sport = useAuthStore((state) => state.sport);
 
   return useQuery({
     queryKey: ['members', sport],
-    queryFn: () => api.getMembers(sport),
+    queryFn: () => api.getMembers(sport, false),
+  });
+}
+
+export function useRefreshMembers() {
+  const queryClient = useQueryClient();
+  const sport = useAuthStore((state) => state.sport);
+
+  return useMutation({
+    mutationFn: () => api.getMembers(sport, true),
+    onSuccess: (data: { members: Member[]; total: number; from_cache: boolean }) => {
+      // Update the members cache with fresh data
+      queryClient.setQueryData(['members', sport], data);
+    },
   });
 }
 

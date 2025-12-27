@@ -1,21 +1,34 @@
 'use client';
 
-import { useState, useEffect } from 'react';
-import { Radio, Play, Square, CheckCircle, XCircle, Clock, Users } from 'lucide-react';
+import { useState, useEffect, useCallback } from 'react';
+import { Radio, Play, Square, CheckCircle, XCircle, Clock, Users, Calendar, X, PartyPopper } from 'lucide-react';
 import { MainLayout } from '@/components/layout';
 import { Card, CardContent, CardHeader, CardTitle, Button, Badge } from '@/components/ui';
-import { useMembers, useStartMonitor, useMonitorWebSocket } from '@/hooks';
+import { useMembers, useRefreshMembers, useStartMonitor, useMonitorWebSocket } from '@/hooks';
 import type { Member } from '@/types';
+
+interface BookingResult {
+  memberId: number;
+  memberName: string;
+  date: string;
+  time: string;
+  level: string;
+  waveSide: string;
+  accessCode: string;
+}
 
 export default function MonitorPage() {
   const { data: membersData, isLoading: membersLoading } = useMembers();
+  const refreshMembersMutation = useRefreshMembers();
   const startMutation = useStartMonitor();
 
   const [selectedMembers, setSelectedMembers] = useState<number[]>([]);
   const [duration, setDuration] = useState(120);
   const [monitorId, setMonitorId] = useState<string | null>(null);
+  const [showSuccessModal, setShowSuccessModal] = useState(false);
+  const [bookingResults, setBookingResults] = useState<BookingResult[]>([]);
 
-  const { messages, isConnected, status, connect, disconnect, sendStop } =
+  const { messages, isConnected, status, connect, disconnect, sendStop, clearMessages } =
     useMonitorWebSocket(monitorId);
 
   // Available members (without booking, with preferences)
@@ -52,6 +65,51 @@ export default function MonitorPage() {
     }
     return () => disconnect();
   }, [monitorId, connect, disconnect]);
+
+  // Detect completed bookings and show success modal
+  useEffect(() => {
+    const completedMsg = messages.find(
+      (msg) => msg.type === 'completed' && msg.results
+    );
+
+    if (completedMsg && completedMsg.results) {
+      const results: BookingResult[] = [];
+
+      // Parse results from the completed message
+      Object.entries(completedMsg.results).forEach(([memberId, result]: [string, any]) => {
+        if (result.success && result.slot) {
+          const member = membersData?.members.find(
+            (m) => m.member_id === parseInt(memberId)
+          );
+          results.push({
+            memberId: parseInt(memberId),
+            memberName: member?.social_name || `Membro ${memberId}`,
+            date: result.slot.date || '',
+            time: result.slot.interval || '',
+            level: result.slot.level || '',
+            waveSide: result.slot.wave_side || '',
+            accessCode: result.access_code || '',
+          });
+        }
+      });
+
+      if (results.length > 0) {
+        setBookingResults(results);
+        setShowSuccessModal(true);
+      }
+    }
+  }, [messages, membersData]);
+
+  // Reset and close modal
+  const handleCloseSuccessModal = useCallback(() => {
+    setShowSuccessModal(false);
+    setBookingResults([]);
+    setMonitorId(null);
+    setSelectedMembers([]);
+    clearMessages();
+    // Refresh members list from API to update booking status
+    refreshMembersMutation.mutate();
+  }, [clearMessages, refreshMembersMutation]);
 
   const handleStop = () => {
     sendStop();
@@ -265,6 +323,87 @@ export default function MonitorPage() {
           </CardContent>
         </Card>
       </div>
+
+      {/* Success Modal */}
+      {showSuccessModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center">
+          {/* Backdrop */}
+          <div
+            className="absolute inset-0 bg-black/50 backdrop-blur-sm"
+            onClick={handleCloseSuccessModal}
+          />
+
+          {/* Modal */}
+          <div className="relative bg-white rounded-2xl shadow-2xl max-w-md w-full mx-4 overflow-hidden">
+            {/* Header with gradient */}
+            <div className="bg-gradient-to-r from-green-500 to-emerald-600 px-6 py-8 text-center text-white">
+              <div className="inline-flex items-center justify-center w-16 h-16 bg-white/20 rounded-full mb-4">
+                <PartyPopper className="h-8 w-8" />
+              </div>
+              <h2 className="text-2xl font-bold">Agendamento Confirmado!</h2>
+              <p className="text-green-100 mt-1">Sessão reservada com sucesso</p>
+            </div>
+
+            {/* Content */}
+            <div className="px-6 py-6">
+              {bookingResults.map((booking, idx) => (
+                <div
+                  key={idx}
+                  className="bg-gray-50 rounded-xl p-4 mb-4 last:mb-0"
+                >
+                  <div className="flex items-center gap-3 mb-3">
+                    <div className="w-10 h-10 bg-primary-100 rounded-full flex items-center justify-center">
+                      <Users className="h-5 w-5 text-primary-600" />
+                    </div>
+                    <div>
+                      <p className="font-semibold text-gray-900">{booking.memberName}</p>
+                      <p className="text-sm text-gray-500">Membro</p>
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-3 text-sm">
+                    <div className="bg-white rounded-lg p-3 border border-gray-100">
+                      <p className="text-gray-500 text-xs uppercase tracking-wide">Data</p>
+                      <p className="font-semibold text-gray-900">{booking.date}</p>
+                    </div>
+                    <div className="bg-white rounded-lg p-3 border border-gray-100">
+                      <p className="text-gray-500 text-xs uppercase tracking-wide">Horário</p>
+                      <p className="font-semibold text-gray-900">{booking.time}</p>
+                    </div>
+                    <div className="bg-white rounded-lg p-3 border border-gray-100">
+                      <p className="text-gray-500 text-xs uppercase tracking-wide">Nível</p>
+                      <p className="font-semibold text-gray-900">{booking.level}</p>
+                    </div>
+                    <div className="bg-white rounded-lg p-3 border border-gray-100">
+                      <p className="text-gray-500 text-xs uppercase tracking-wide">Lado</p>
+                      <p className="font-semibold text-gray-900">{booking.waveSide}</p>
+                    </div>
+                  </div>
+
+                  {booking.accessCode && (
+                    <div className="mt-3 bg-primary-50 rounded-lg p-3 border border-primary-100">
+                      <p className="text-primary-600 text-xs uppercase tracking-wide">Código de Acesso</p>
+                      <p className="font-mono font-bold text-primary-700 text-lg">{booking.accessCode}</p>
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+
+            {/* Footer */}
+            <div className="px-6 pb-6">
+              <Button
+                variant="primary"
+                className="w-full"
+                onClick={handleCloseSuccessModal}
+              >
+                <CheckCircle className="h-4 w-4 mr-2" />
+                Fechar
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
     </MainLayout>
   );
 }
