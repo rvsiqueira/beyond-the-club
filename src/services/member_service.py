@@ -2,6 +2,7 @@
 Member management service.
 
 Handles member data, preferences, and caching.
+Cache is per-user (phone) to ensure data isolation.
 """
 
 import json
@@ -15,7 +16,8 @@ from .base import BaseService, ServiceContext
 
 logger = logging.getLogger(__name__)
 
-MEMBERS_CACHE_FILE = Path(__file__).parent.parent.parent / ".beyondtheclub_members.json"
+# Directory for per-user member caches
+MEMBERS_CACHE_DIR = Path(__file__).parent.parent.parent / "data" / "members_cache"
 PREFERENCES_CACHE_FILE = Path(__file__).parent.parent.parent / ".beyondtheclub_preferences.json"
 
 
@@ -81,8 +83,11 @@ class MemberService(BaseService):
     """
     Service for managing members and their preferences.
 
+    Members cache is per-user (identified by phone) to ensure data isolation.
+    Preferences cache is global (member preferences are shared).
+
     Responsibilities:
-    - Load/save member cache
+    - Load/save member cache per user
     - Refresh members from API
     - Manage member preferences (per sport)
     - Find members by ID or name
@@ -94,24 +99,47 @@ class MemberService(BaseService):
         self._prefs_cache: Dict[str, Any] = {}
         self._members_loaded = False
         self._prefs_loaded = False
+        self._current_user_phone: Optional[str] = None
+
+    def _get_user_cache_file(self, phone: str) -> Path:
+        """Get the cache file path for a specific user."""
+        # Sanitize phone for filename (remove + and spaces)
+        safe_phone = phone.replace("+", "").replace(" ", "").replace("-", "")
+        return MEMBERS_CACHE_DIR / f"members_{safe_phone}.json"
+
+    def _ensure_cache_dir(self):
+        """Ensure the cache directory exists."""
+        MEMBERS_CACHE_DIR.mkdir(parents=True, exist_ok=True)
+
+    def set_current_user(self, phone: str):
+        """Set the current user for member operations."""
+        if self._current_user_phone != phone:
+            # Reset cache when user changes
+            self._members_cache = {}
+            self._members_loaded = False
+            self._current_user_phone = phone
+            logger.debug(f"Switched member cache context to user {phone}")
 
     def _load_members_cache(self) -> Dict[str, Any]:
-        """Load members cache from file."""
+        """Load members cache from file for current user."""
+        if not self._current_user_phone:
+            logger.warning("No current user set, returning empty members cache")
+            return {"members": [], "last_updated": None}
+
         if self._members_loaded:
             return self._members_cache
 
         try:
-            if not MEMBERS_CACHE_FILE.exists():
+            cache_file = self._get_user_cache_file(self._current_user_phone)
+            if not cache_file.exists():
                 self._members_cache = {"members": [], "last_updated": None}
             else:
-                self._members_cache = json.loads(MEMBERS_CACHE_FILE.read_text())
-                # Migrate old format: move preferences to separate file
-                if "preferences" in self._members_cache:
-                    self._migrate_preferences_to_separate_file()
+                self._members_cache = json.loads(cache_file.read_text())
             self._members_loaded = True
+            logger.debug(f"Loaded members cache for {self._current_user_phone}: {len(self._members_cache.get('members', []))} members")
             return self._members_cache
         except Exception as e:
-            logger.warning(f"Could not load members cache: {e}")
+            logger.warning(f"Could not load members cache for {self._current_user_phone}: {e}")
             self._members_cache = {"members": [], "last_updated": None}
             self._members_loaded = True
             return self._members_cache
@@ -135,44 +163,20 @@ class MemberService(BaseService):
             self._prefs_loaded = True
             return self._prefs_cache
 
-    def _migrate_preferences_to_separate_file(self):
-        """Migrate preferences from old members cache to separate file."""
-        if "preferences" not in self._members_cache:
+    def _save_members_cache(self):
+        """Save members cache to file for current user."""
+        if not self._current_user_phone:
+            logger.warning("No current user set, cannot save members cache")
             return
 
-        # Load or create preferences cache
-        if PREFERENCES_CACHE_FILE.exists():
-            try:
-                existing_prefs = json.loads(PREFERENCES_CACHE_FILE.read_text())
-            except Exception:
-                existing_prefs = {"preferences": {}, "last_updated": None}
-        else:
-            existing_prefs = {"preferences": {}, "last_updated": None}
-
-        # Merge preferences (don't overwrite existing)
-        for member_id, prefs in self._members_cache["preferences"].items():
-            if member_id not in existing_prefs["preferences"]:
-                existing_prefs["preferences"][member_id] = prefs
-
-        # Save to separate file
-        existing_prefs["last_updated"] = datetime.now().isoformat()
-        PREFERENCES_CACHE_FILE.write_text(json.dumps(existing_prefs, indent=2))
-        logger.info("Migrated preferences to separate cache file")
-
-        # Remove preferences from members cache and save
-        del self._members_cache["preferences"]
-        self._members_cache["last_updated"] = datetime.now().isoformat()
-        MEMBERS_CACHE_FILE.write_text(json.dumps(self._members_cache, indent=2))
-        logger.info("Removed preferences from members cache")
-
-    def _save_members_cache(self):
-        """Save members cache to file."""
         try:
+            self._ensure_cache_dir()
+            cache_file = self._get_user_cache_file(self._current_user_phone)
             self._members_cache["last_updated"] = datetime.now().isoformat()
-            MEMBERS_CACHE_FILE.write_text(json.dumps(self._members_cache, indent=2))
-            logger.debug("Members cache saved")
+            cache_file.write_text(json.dumps(self._members_cache, indent=2))
+            logger.debug(f"Members cache saved for {self._current_user_phone}")
         except Exception as e:
-            logger.warning(f"Could not save members cache: {e}")
+            logger.warning(f"Could not save members cache for {self._current_user_phone}: {e}")
 
     def _save_prefs_cache(self):
         """Save preferences cache to file."""
@@ -202,8 +206,12 @@ class MemberService(BaseService):
             self._save_prefs_cache()
 
     def refresh_members(self) -> List[Member]:
-        """Fetch members from API and update cache."""
+        """Fetch members from API and update cache for current user."""
         self.require_initialized()
+
+        if not self._current_user_phone:
+            logger.warning("No current user set, cannot refresh members")
+            return []
 
         response = self.api.get_schedule_status(self.current_sport)
         members_data = response.get("value", [])
@@ -221,16 +229,16 @@ class MemberService(BaseService):
             )
             members.append(member)
 
-        # Update members cache only (preferences are separate)
+        # Update members cache for this user
         self._load_members_cache()
         self._members_cache["members"] = [asdict(m) for m in members]
         self._save_members_cache()
 
-        logger.info(f"Refreshed {len(members)} members from API")
+        logger.info(f"Refreshed {len(members)} members from API for user {self._current_user_phone}")
         return members
 
     def get_members(self, force_refresh: bool = False) -> List[Member]:
-        """Get members list (from cache or API)."""
+        """Get members list (from cache or API) for current user."""
         self._load_members_cache()
 
         if force_refresh or not self._members_cache.get("members"):

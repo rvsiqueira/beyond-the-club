@@ -265,12 +265,17 @@ def ensure_beyond_api(services: Services, user: User) -> bool:
     Does NOT automatically send SMS - requires explicit verification via modal.
     Will try to refresh expired tokens using refresh_token.
 
+    Also sets the current user context in MemberService for per-user caching.
+
     Returns:
         True if API is ready
 
     Raises:
         HTTPException 401 if Beyond verification is required
     """
+    # Set current user in MemberService for per-user caching
+    services.members.set_current_user(user.phone)
+
     # Check if API is already initialized
     if services.context.api:
         return True

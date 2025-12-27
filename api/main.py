@@ -30,7 +30,7 @@ logging.basicConfig(
 scheduler: Optional[AsyncIOScheduler] = None
 
 # Admin phone for scheduled tasks (will use this user's Beyond tokens)
-ADMIN_PHONE = "+5511972741849"
+ADMIN_PHONE = "+5511942842228"
 
 
 async def refresh_availability_cache():

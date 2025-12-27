@@ -21,7 +21,7 @@ COPY docker-entrypoint.sh /docker-entrypoint.sh
 RUN chmod +x /docker-entrypoint.sh
 
 # Create data directory and initialize empty cache files
-RUN mkdir -p /app/data && \
+RUN mkdir -p /app/data /app/data/members_cache && \
     echo '{}' > /app/.beyondtheclub_tokens.json && \
     echo '{}' > /app/.beyondtheclub_members.json && \
     echo '{}' > /app/.beyondtheclub_availability.json && \

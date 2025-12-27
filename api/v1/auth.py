@@ -4,12 +4,15 @@ Authentication endpoints.
 Handles user registration, login, and token management.
 """
 
+import logging
 from typing import Optional, List
 
 from fastapi import APIRouter, HTTPException, status
 from pydantic import BaseModel, Field
 
 from ..deps import ServicesDep, CurrentUser
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -311,16 +314,30 @@ async def verify_beyond_sms(
 
     Verifies the SMS code and stores the Beyond API tokens
     linked to the current web user's phone number.
+
+    After verification, automatically loads members for the user's cache.
     """
     try:
         # Verify using the Beyond phone (that received the SMS)
         # Store tokens linked to the web user's phone
-        services.beyond_tokens.verify_sms(
+        tokens = services.beyond_tokens.verify_sms(
             beyond_phone=request.phone,  # Phone that received SMS
             code=request.code,
             session_info=request.session_info,
             store_for_phone=current_user.phone  # Store linked to web user
         )
+
+        # Initialize Beyond API and load members for this user
+        try:
+            from src.firebase_auth import FirebaseTokens
+            services.auth.initialize_with_tokens(tokens)
+            services.members.set_current_user(current_user.phone)
+            services.members.refresh_members()
+            logger.info(f"Loaded members for user {current_user.phone} after Beyond verification")
+        except Exception as e:
+            logger.warning(f"Failed to load members after Beyond verification: {e}")
+            # Don't fail the verification if member loading fails
+
         return {"success": True}
     except Exception as e:
         raise HTTPException(
