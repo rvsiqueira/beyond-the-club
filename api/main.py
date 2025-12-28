@@ -62,6 +62,9 @@ async def refresh_availability_cache():
         )
         services.auth.initialize_with_tokens(tokens)
 
+        # Set current user for member service (required for member queries)
+        services.members.set_current_user(ADMIN_PHONE)
+
         # Scan availability
         services.availability.scan_availability()
         logger.info("Scheduled availability cache refresh completed")
