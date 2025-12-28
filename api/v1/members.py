@@ -88,23 +88,24 @@ async def list_members(
     if has_cache and not refresh:
         members = cached_members
         from_cache = True
-        # Don't need Beyond API for cached data
-        booked_member_ids = set()
     else:
         # Need to fetch from API - initialize Beyond API
         ensure_beyond_api(services, current_user)
         members = services.members.get_members(force_refresh=True)
         from_cache = False
 
-        # Get active bookings to check status (only when fetching fresh)
-        try:
-            active_bookings = services.bookings.get_active_bookings()
-            booked_member_ids = {
-                b.get("member", {}).get("memberId")
-                for b in active_bookings
-            }
-        except Exception:
-            booked_member_ids = set()
+    # Always initialize Beyond API and get active bookings for accurate has_booking status
+    # This ensures members show correct booking status even when using cached member data
+    booked_member_ids = set()
+    try:
+        ensure_beyond_api(services, current_user)
+        active_bookings = services.bookings.get_active_bookings()
+        booked_member_ids = {
+            b.get("member", {}).get("memberId")
+            for b in active_bookings
+        }
+    except Exception:
+        pass
 
     result = []
     for m in members:
