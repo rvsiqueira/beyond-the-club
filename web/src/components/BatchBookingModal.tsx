@@ -109,9 +109,8 @@ export function BatchBookingModal({
 
   // Filter members that can receive a booking:
   // - Don't have active bookings (has_booking = false)
-  // - Have available usage (usage < limit)
   const availableMembers = membersData?.members.filter(
-    (m) => !m.has_booking && m.usage < m.limit
+    (m) => !m.has_booking
   ) ?? [];
 
   const selectedCount = selectedMemberIds.length;
@@ -283,7 +282,7 @@ export function BatchBookingModal({
                               {member.social_name}
                             </div>
                             <div className="text-xs text-gray-500">
-                              {member.usage}/{member.limit} usos
+                              {member.has_booking ? 'Agendado' : 'Disponível'}
                             </div>
                           </div>
                         </div>

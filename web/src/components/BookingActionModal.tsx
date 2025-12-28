@@ -104,9 +104,8 @@ export function BookingActionModal({
   // Filter members that can receive a booking:
   // - Not the current booking member
   // - Don't have active bookings (has_booking = false)
-  // - Have available usage (usage < limit, i.e., 0/1 not 1/1)
   const availableMembers = membersData?.members.filter(
-    (m) => !m.has_booking && m.member_id !== booking?.member_id && m.usage < m.limit
+    (m) => !m.has_booking && m.member_id !== booking?.member_id
   ) ?? [];
 
   if (!booking) return null;
@@ -251,7 +250,7 @@ export function BookingActionModal({
                           {member.social_name}
                         </div>
                         <div className="text-sm text-gray-500">
-                          {member.usage}/{member.limit} usos
+                          {member.has_booking ? 'Agendado' : 'Disponível'}
                         </div>
                       </div>
                     </div>
