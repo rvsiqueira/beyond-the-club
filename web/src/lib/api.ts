@@ -14,10 +14,10 @@ import type {
   SportConfig,
 } from '@/types';
 
-// Use direct API URL in browser (client-side)
-const API_BASE = typeof window !== 'undefined'
-  ? 'http://localhost:8000/api/v1'  // Browser calls API directly
-  : '/api/v1';  // Server-side uses rewrite
+// Use relative URL so it works in both development and production
+// In development: proxied by Next.js or direct to localhost
+// In production: proxied by nginx to api container
+const API_BASE = '/api/v1';
 
 // Custom error type for Beyond auth requirement
 export interface BeyondAuthError extends Error {
