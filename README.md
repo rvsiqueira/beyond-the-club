@@ -661,10 +661,78 @@ curl -N http://localhost:8001/sse
 
 ### Testes
 
-```bash
-pytest tests/
-pytest --cov=src tests/
+O projeto possui uma suíte completa de testes automatizados dividida em:
+
+#### Estrutura de Testes
+
 ```
+tests/
+├── conftest.py                    # Fixtures compartilhadas
+├── unit/                          # Testes unitários
+│   ├── test_jwt_handler.py        # JWT: criação, validação, refresh
+│   ├── test_password.py           # Password hashing, phone normalization
+│   └── test_user_store.py         # User CRUD, persistência
+├── api/                           # Testes de integração API
+│   ├── test_auth_endpoints.py     # Auth: registro, login, beyond
+│   ├── test_members_endpoints.py  # Members: listagem, preferências
+│   └── test_system_endpoints.py   # Health, status, docs
+└── mcp/                           # Testes de integração MCP
+    ├── conftest.py                # Fixtures MCP específicas
+    ├── test_mcp_auth.py           # Sessões, SSE auth
+    └── test_mcp_session_manager.py # Session manager unit tests
+```
+
+#### Executando os Testes
+
+```bash
+# Via Docker (recomendado - ambiente completo)
+
+# Testes unitários + API (87 testes)
+docker exec btc-api python -m pytest tests/unit/ tests/api/ -v
+
+# Testes MCP (30 testes)
+docker exec btc-mcp python -m pytest tests/mcp/ -v
+
+# Com cobertura
+docker exec btc-api python -m pytest tests/ --cov=src --cov=api --cov-report=term-missing
+
+# Por marcador
+docker exec btc-api python -m pytest -m unit -v        # Apenas unitários
+docker exec btc-api python -m pytest -m api -v         # Apenas API
+docker exec btc-mcp python -m pytest -m mcp -v         # Apenas MCP
+```
+
+```bash
+# Localmente (requer dependências instaladas)
+
+# Instalar dependências de teste
+pip install pytest pytest-asyncio pytest-cov pytest-mock respx
+
+# Executar todos os testes
+pytest tests/ -v
+
+# Com cobertura
+pytest tests/ --cov=src --cov=api --cov-report=html
+```
+
+#### Marcadores de Teste
+
+| Marcador | Descrição |
+|----------|-----------|
+| `@pytest.mark.unit` | Testes unitários |
+| `@pytest.mark.api` | Testes de endpoints API |
+| `@pytest.mark.mcp` | Testes de endpoints MCP |
+| `@pytest.mark.integration` | Testes de integração |
+| `@pytest.mark.slow` | Testes lentos |
+
+#### Cobertura
+
+| Módulo | Testes |
+|--------|--------|
+| `src/auth/` | JWT, Password, UserStore (56 testes) |
+| `api/v1/` | Auth, Members, System endpoints (31 testes) |
+| `mcp_btc/` | Session, Auth, SSE (30 testes) |
+| **Total** | **117 testes** |
 
 ### Linting
 
