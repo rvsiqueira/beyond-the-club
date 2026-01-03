@@ -18,9 +18,17 @@ fastapi>=0.109.0
 uvicorn[standard]>=0.27.0
 pydantic>=2.0.0
 websockets>=12.0
+starlette>=0.35.0
 
-# MCP (Model Context Protocol)
+# MCP (Model Context Protocol) with SSE support
 mcp>=1.0.0
 
 # Scheduler
 apscheduler>=3.10.0
+
+# Testing
+pytest>=7.4.0
+pytest-asyncio>=0.23.0
+pytest-cov>=4.1.0
+pytest-mock>=3.12.0
+respx>=0.20.0  # Mock httpx requests

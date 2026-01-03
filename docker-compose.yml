@@ -55,13 +55,15 @@ services:
       retries: 3
       start_period: 15s
 
-  # MCP Server (optional, for Claude integration)
+  # MCP Server (SSE transport for voice agents and remote clients)
   mcp:
     build:
       context: .
       dockerfile: Dockerfile.mcp
     container_name: btc-mcp
     restart: unless-stopped
+    ports:
+      - "8001:8001"
     volumes:
       # Data directory for persistent storage
       - ./data:/app/data
@@ -74,11 +76,20 @@ services:
       - ./cache/.beyondtheclub_preferences.json:/app/.beyondtheclub_preferences.json
     environment:
       - PYTHONPATH=/app
+      - MCP_HOST=0.0.0.0
+      - MCP_PORT=8001
+      # MCP_API_KEY and MCP_SESSION_EXPIRY_SECONDS are loaded from .env file
     depends_on:
       api:
         condition: service_healthy
     networks:
       - btc-network
+    healthcheck:
+      test: ["CMD", "python", "-c", "import httpx; httpx.get('http://localhost:8001/health', timeout=5)"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
     profiles:
       - mcp  # Only start with: docker-compose --profile mcp up
 

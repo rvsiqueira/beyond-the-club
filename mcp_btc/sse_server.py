@@ -3,24 +3,61 @@ MCP Server implementation.
 
 Exposes tools and resources for Claude to interact with
 the Beyond The Club booking system.
+
+Uses SSE (Server-Sent Events) transport for remote access
+by voice agents and other HTTP clients.
+
+Authentication:
+- Voice Agent authenticates with API Key (X-API-Key header)
+- Session is created for caller_id (phone number)
+- Session token is used for SSE connection (Authorization: Bearer)
 """
 
 import logging
-from typing import Any
+import os
+import json
+from typing import Any, Optional
+
+import uvicorn
+from starlette.applications import Starlette
+from starlette.routing import Route, Mount
+from starlette.requests import Request
+from starlette.responses import Response, JSONResponse
+from starlette.middleware import Middleware
+from starlette.middleware.base import BaseHTTPMiddleware
 
 from mcp.server import Server
-from mcp.server.stdio import stdio_server
+from mcp.server.sse import SseServerTransport
 from mcp.types import (
     Tool,
     TextContent,
     Resource,
-    ResourceTemplate,
 )
 
-from .tools import booking, availability, members, monitor, auth
+from .tools import booking, availability, members, monitor, auth as auth_tools
 from .resources import context
+from .auth import (
+    get_session_manager,
+    authenticate_request,
+    validate_session_token,
+    Session,
+)
 
 logger = logging.getLogger(__name__)
+
+# Current session context (set per-request)
+_current_session: Optional[Session] = None
+
+
+def get_current_session() -> Optional[Session]:
+    """Get the current session for this request."""
+    return _current_session
+
+
+def set_current_session(session: Optional[Session]):
+    """Set the current session for this request."""
+    global _current_session
+    _current_session = session
 
 # Create server instance
 server = Server("beyond-the-club")
@@ -480,18 +517,281 @@ async def read_resource(uri: str) -> str:
 
 # === Server Entry Point ===
 
-async def main():
-    """Run the MCP server."""
+# SSE transport for remote HTTP access
+sse = SseServerTransport("/messages/")
+
+
+# === Authentication Endpoints ===
+
+async def handle_create_session(request: Request) -> Response:
+    """
+    Create a new session for a Voice Agent caller.
+
+    POST /auth/session
+    Headers:
+        X-API-Key: <app_api_key>
+    Body:
+        { "caller_id": "+5511999999999" }
+
+    Returns:
+        {
+            "session_token": "sess_xxx...",
+            "expires_in": 600,
+            "user": {
+                "phone": "+5511999999999",
+                "name": "Rafael",
+                "has_beyond_token": true,
+                "member_ids": [12869]
+            }
+        }
+    """
+    # Get API key from header
+    api_key = request.headers.get("X-API-Key")
+
+    # Parse body
+    try:
+        body = await request.json()
+        caller_id = body.get("caller_id")
+    except Exception:
+        return JSONResponse(
+            {"error": "Invalid JSON body"},
+            status_code=400
+        )
+
+    if not caller_id:
+        return JSONResponse(
+            {"error": "caller_id is required"},
+            status_code=400
+        )
+
+    # Authenticate and create session
+    success, message, session = await authenticate_request(api_key, caller_id)
+
+    if not success:
+        return JSONResponse(
+            {"error": message},
+            status_code=401
+        )
+
+    # Return session info
+    return JSONResponse({
+        "session_token": session.token,
+        "expires_in": int(session.expires_at - session.created_at),
+        "user": {
+            "phone": session.caller_id,
+            "name": session.user_name,
+            "has_beyond_token": session.has_beyond_token,
+            "member_ids": session.member_ids
+        }
+    })
+
+
+async def handle_validate_session(request: Request) -> Response:
+    """
+    Validate a session token.
+
+    GET /auth/validate
+    Headers:
+        Authorization: Bearer <session_token>
+
+    Returns:
+        { "valid": true, "user": {...} } or { "valid": false }
+    """
+    auth_header = request.headers.get("Authorization", "")
+
+    if not auth_header.startswith("Bearer "):
+        return JSONResponse({"valid": False, "error": "Missing Bearer token"})
+
+    token = auth_header[7:]  # Remove "Bearer " prefix
+    session = validate_session_token(token)
+
+    if not session:
+        return JSONResponse({"valid": False, "error": "Invalid or expired session"})
+
+    return JSONResponse({
+        "valid": True,
+        "user": {
+            "phone": session.caller_id,
+            "name": session.user_name,
+            "has_beyond_token": session.has_beyond_token,
+            "member_ids": session.member_ids
+        },
+        "expires_at": session.expires_at
+    })
+
+
+async def handle_end_session(request: Request) -> Response:
+    """
+    End/invalidate a session.
+
+    POST /auth/logout
+    Headers:
+        Authorization: Bearer <session_token>
+    """
+    auth_header = request.headers.get("Authorization", "")
+
+    if not auth_header.startswith("Bearer "):
+        return JSONResponse({"error": "Missing Bearer token"}, status_code=401)
+
+    token = auth_header[7:]
+    manager = get_session_manager()
+    invalidated = manager.invalidate_session(token)
+
+    return JSONResponse({"success": invalidated})
+
+
+# === Health Check ===
+
+async def handle_health(request: Request) -> Response:
+    """Health check endpoint."""
+    manager = get_session_manager()
+    return JSONResponse({
+        "status": "healthy",
+        "service": "mcp-server",
+        "active_sessions": manager.get_active_sessions_count()
+    })
+
+
+# === SSE with Authentication ===
+
+async def handle_sse(request: Request) -> Response:
+    """
+    Handle SSE connection from clients.
+
+    GET /sse
+    Headers:
+        Authorization: Bearer <session_token>  (optional in dev mode)
+    """
+    # Check for session token
+    auth_header = request.headers.get("Authorization", "")
+    session = None
+
+    if auth_header.startswith("Bearer "):
+        token = auth_header[7:]
+        session = validate_session_token(token)
+
+        if not session:
+            return JSONResponse(
+                {"error": "Invalid or expired session token"},
+                status_code=401
+            )
+
+        logger.info(f"SSE connection from {session.caller_id} ({request.client})")
+        set_current_session(session)
+    else:
+        # Check if API key is configured (production mode)
+        manager = get_session_manager()
+        if manager._api_key:
+            return JSONResponse(
+                {"error": "Authorization required. Use POST /auth/session first."},
+                status_code=401
+            )
+
+        # Dev mode - allow without auth
+        logger.warning(f"SSE connection without auth from {request.client} (dev mode)")
+
+    try:
+        async with sse.connect_sse(
+            request.scope, request.receive, request._send
+        ) as streams:
+            await server.run(
+                streams[0], streams[1],
+                server.create_initialization_options()
+            )
+    finally:
+        set_current_session(None)
+
+    return Response()
+
+
+# === Messages Endpoint with Auth Check ===
+
+class AuthMiddleware(BaseHTTPMiddleware):
+    """Middleware to check authentication for /messages/ endpoint."""
+
+    async def dispatch(self, request: Request, call_next):
+        # Skip auth for non-messages routes
+        if not request.url.path.startswith("/messages/"):
+            return await call_next(request)
+
+        # Check for session token
+        auth_header = request.headers.get("Authorization", "")
+
+        if auth_header.startswith("Bearer "):
+            token = auth_header[7:]
+            session = validate_session_token(token)
+
+            if not session:
+                return JSONResponse(
+                    {"error": "Invalid or expired session token"},
+                    status_code=401
+                )
+
+            set_current_session(session)
+        else:
+            # Check if API key is configured (production mode)
+            manager = get_session_manager()
+            if manager._api_key:
+                return JSONResponse(
+                    {"error": "Authorization required"},
+                    status_code=401
+                )
+
+        try:
+            response = await call_next(request)
+        finally:
+            set_current_session(None)
+
+        return response
+
+
+# Starlette app with routes and middleware
+app = Starlette(
+    debug=False,
+    routes=[
+        # Auth endpoints
+        Route("/auth/session", endpoint=handle_create_session, methods=["POST"]),
+        Route("/auth/validate", endpoint=handle_validate_session, methods=["GET"]),
+        Route("/auth/logout", endpoint=handle_end_session, methods=["POST"]),
+
+        # Health check
+        Route("/health", endpoint=handle_health, methods=["GET"]),
+
+        # MCP SSE endpoints
+        Route("/sse", endpoint=handle_sse),
+        Mount("/messages/", app=sse.handle_post_message),
+    ],
+    middleware=[
+        Middleware(AuthMiddleware),
+    ]
+)
+
+
+def main():
+    """Run the MCP server with SSE transport."""
     logging.basicConfig(
         level=logging.INFO,
         format="%(asctime)s | %(levelname)-8s | %(name)s | %(message)s"
     )
-    logger.info("Starting Beyond The Club MCP Server...")
 
-    async with stdio_server() as (read_stream, write_stream):
-        await server.run(read_stream, write_stream, server.create_initialization_options())
+    host = os.getenv("MCP_HOST", "0.0.0.0")
+    port = int(os.getenv("MCP_PORT", "8001"))
+
+    logger.info(f"Starting Beyond The Club MCP Server (SSE) on {host}:{port}...")
+    logger.info("Auth endpoint: POST /auth/session")
+    logger.info("SSE endpoint: GET /sse")
+    logger.info("Messages endpoint: POST /messages/")
+    logger.info("Health endpoint: GET /health")
+
+    # Check if API key is configured
+    manager = get_session_manager()
+    if manager._api_key:
+        logger.info("API Key authentication: ENABLED")
+    else:
+        logger.warning("API Key authentication: DISABLED (dev mode)")
+
+    uvicorn.run(app, host=host, port=port)
 
 
 if __name__ == "__main__":
-    import asyncio
-    asyncio.run(main())
+    main()

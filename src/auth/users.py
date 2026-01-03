@@ -376,3 +376,28 @@ class UserStore:
             True if user exists
         """
         return self.get_by_phone(phone) is not None
+
+
+# Module-level helper function for convenience
+_default_store: Optional[UserStore] = None
+
+
+def get_user_store() -> UserStore:
+    """Get or create the default user store."""
+    global _default_store
+    if _default_store is None:
+        _default_store = UserStore()
+    return _default_store
+
+
+def get_user_by_phone(phone: str) -> Optional[dict]:
+    """
+    Get user by phone number.
+
+    Returns user data as dict or None if not found.
+    """
+    store = get_user_store()
+    user = store.get_by_phone(phone)
+    if user:
+        return user.to_dict()
+    return None
