@@ -180,6 +180,169 @@ The server exposes the following tools via MCP:
 
 ---
 
+## Knowledge Graph Ontology
+
+The MCP server uses a semantic knowledge graph to provide intelligent recommendations and track user preferences. The agent can leverage this ontology for smarter interactions.
+
+### Graph Node Types
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                     KNOWLEDGE GRAPH ONTOLOGY                     │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                  │
+│  ┌──────┐         ┌────────┐         ┌────────────┐             │
+│  │ User │─────────│ Member │─────────│ Preference │             │
+│  └──────┘         └────────┘         └────────────┘             │
+│     │               │   │                  │                     │
+│     │               │   │     ┌────────────┼────────────┐        │
+│     │               │   │     │            │            │        │
+│     │               │   │     ▼            ▼            ▼        │
+│     │               │   │  ┌───────┐  ┌──────────┐  ┌───────┐   │
+│     │               │   │  │ Level │  │ WaveSide │  │ Court │   │
+│     │               │   │  └───────┘  └──────────┘  └───────┘   │
+│     │               │   │     (Surf)     (Surf)      (Tennis)   │
+│     │               │   │                                       │
+│     │               │   └─────────┐                             │
+│     │               │             │                             │
+│     │               ▼             ▼                             │
+│     │          ┌─────────┐   ┌────────┐                         │
+│     │          │ Booking │───│  Slot  │───────┐                 │
+│     │          └─────────┘   └────────┘       │                 │
+│     │                             │           ▼                 │
+│     │                             │      ┌────────┐             │
+│     │                             └──────│  Date  │             │
+│     │                                    └────────┘             │
+│     │                                                           │
+│     └───────────────────┐                                       │
+│                         ▼                                       │
+│                    ┌──────────┐                                 │
+│                    │ TimeSlot │  (preferred hours: 08:00, etc) │
+│                    └──────────┘                                 │
+│                                                                  │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+| Node Type | Description | Properties |
+|-----------|-------------|------------|
+| `User` | App user (by phone) | `phone`, `name` |
+| `Member` | Beyond club member | `member_id`, `name`, `social_name`, `is_titular` |
+| `Sport` | Sport type | `name` (surf, tennis) |
+| `Preference` | Booking preference | `sport`, `priority`, `attributes` |
+| `Level` | Surf skill level | `name` (Iniciante1, Intermediario2, Avançado1, etc.) |
+| `WaveSide` | Surf wave side | `name` (Lado_esquerdo, Lado_direito) |
+| `Court` | Tennis court | `name` (Quadra_Saibro) |
+| `TimeSlot` | Preferred hour | `hour` (08:00, 09:00, etc.) |
+| `Booking` | Active booking | `voucher`, `access_code`, `status`, `created_at` |
+| `Slot` | Available session slot | `date`, `interval`, `available`, `level`, `wave_side` |
+| `Date` | Calendar date | `value` (YYYY-MM-DD) |
+
+### Graph Relationships (Edges)
+
+| Edge Type | From → To | Description |
+|-----------|-----------|-------------|
+| `HAS_MEMBER` | User → Member | User owns member(s) |
+| `HAS_PREFERENCE` | Member → Preference | Member's booking preference |
+| `FOR_SPORT` | Preference → Sport | Preference is for sport |
+| `PREFERS_LEVEL` | Preference → Level | Preferred surf level |
+| `PREFERS_WAVE_SIDE` | Preference → WaveSide | Preferred wave side |
+| `PREFERS_COURT` | Preference → Court | Preferred tennis court |
+| `PREFERS_HOUR` | Member → TimeSlot | Preferred booking hours |
+| `BOOKED` | Member → Booking | Member made booking |
+| `FOR_SLOT` | Booking → Slot | Booking is for slot |
+| `ON_DATE` | Slot → Date | Slot is on date |
+
+### Surf Domain Values
+
+**Levels (skill progression):**
+```
+Iniciante1 → Iniciante2 → Intermediario1 → Intermediario2 → Avançado1 → Avançado2
+```
+
+**Wave Sides:**
+- `Lado_esquerdo` (Left side)
+- `Lado_direito` (Right side)
+
+### How the Agent Discovers the Ontology
+
+When the agent connects via MCP, it can discover the domain knowledge through:
+
+1. **List Resources** - Get structured data:
+```json
+{
+  "jsonrpc": "2.0",
+  "id": 1,
+  "method": "resources/list"
+}
+```
+
+Available resources:
+| Resource | Description |
+|----------|-------------|
+| `members` | All members with preferences |
+| `bookings` | Active bookings with slot details |
+| `availability` | Available slots for booking |
+| `preferences` | All member preferences by sport |
+| `auth` | Authentication status |
+
+2. **Read Resource** - Get specific data:
+```json
+{
+  "jsonrpc": "2.0",
+  "id": 2,
+  "method": "resources/read",
+  "params": { "uri": "btc://members" }
+}
+```
+
+3. **Use Graph-Aware Tools**:
+
+The `get_member_preferences` tool returns graph-enhanced data including **similar members**:
+
+```json
+{
+  "member": "Rafael Silva",
+  "preferences": [
+    {
+      "sport": "surf",
+      "priority": 1,
+      "level": "Avançado2",
+      "wave_side": "Lado_direito"
+    }
+  ],
+  "target_hours": ["08:00", "09:00"],
+  "similar_members": [
+    { "name": "João Costa", "similarity": 0.85 },
+    { "name": "Maria Santos", "similarity": 0.72 }
+  ]
+}
+```
+
+### Semantic Queries the Graph Enables
+
+| Query | Description | Use Case |
+|-------|-------------|----------|
+| Find similar members | Members with matching preferences | "Others who surf like you also book at 8am" |
+| Optimal slot | Best slot based on preferences + hours | "I found a perfect slot for you" |
+| Booking history | Past bookings by member | "You usually book Avançado2 on weekends" |
+| Popular combos | Most booked level/wave combinations | "Intermediario2/Lado_direito is popular" |
+| Preference patterns | Cross-member preference analysis | "Most Avançado users prefer morning slots" |
+
+### Example: Agent Using Graph Intelligence
+
+```
+User: "Quero agendar uma aula de surf"
+
+Agent thinks:
+  1. Get member preferences from graph
+  2. Check similar members' booking patterns
+  3. Find optimal slot matching preferences + preferred hours
+  4. Suggest with context: "Vi que você prefere Avançado2 lado direito.
+     Tem vaga amanhã às 8h - mesmo horário que você geralmente agenda."
+```
+
+---
+
 ## Session Lifecycle
 
 ```
