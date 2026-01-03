@@ -188,8 +188,8 @@ class ApiClient {
   }
 
   // Members
-  async getMembers(sport: string = 'surf'): Promise<{ members: Member[]; total: number }> {
-    return this.fetch(`/members?sport=${sport}`);
+  async getMembers(sport: string = 'surf', refresh: boolean = false): Promise<{ members: Member[]; total: number; from_cache: boolean }> {
+    return this.fetch(`/members?sport=${sport}&refresh=${refresh}`);
   }
 
   async getMember(id: number, sport: string = 'surf'): Promise<Member> {
