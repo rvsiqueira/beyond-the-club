@@ -15,7 +15,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 # Copy source code
 COPY src/ ./src/
-COPY mcp/ ./mcp/
+COPY mcp_btc/ ./mcp_btc/
 
 # Copy entrypoint script
 COPY docker-entrypoint.sh /docker-entrypoint.sh
@@ -43,4 +43,4 @@ EXPOSE 8001
 ENTRYPOINT ["/docker-entrypoint.sh"]
 
 # Run the MCP server with SSE transport
-CMD ["python", "-m", "mcp.server"]
+CMD ["python", "-m", "mcp_btc.sse_server"]
