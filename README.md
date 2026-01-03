@@ -78,7 +78,16 @@ cd beyond-the-club
 
 # Configure as variáveis de ambiente
 cp .env.example .env
-# Edite .env com suas configurações
+
+# IMPORTANTE: Gere chaves seguras para JWT e MCP
+# Execute os comandos abaixo e copie os valores para o .env:
+openssl rand -hex 32  # Use para JWT_SECRET_KEY
+openssl rand -hex 32  # Use para MCP_API_KEY
+
+# Edite .env e preencha:
+# - JWT_SECRET_KEY=<chave gerada>
+# - MCP_API_KEY=<chave gerada>
+# - Outras configurações conforme necessário
 
 # Inicie todos os serviços
 docker-compose --profile mcp up -d
@@ -365,9 +374,10 @@ beyond-the-club/
 │       ├── sports.py
 │       └── system.py
 │
-├── mcp/                          # MCP Server (SSE)
-│   ├── server.py                 # Server com SSE transport
+├── mcp_btc/                      # MCP Server (SSE)
+│   ├── sse_server.py             # Server com SSE transport
 │   ├── context.py                # Inicialização de serviços
+│   ├── auth.py                   # Autenticação de sessões
 │   ├── tools/                    # Ferramentas MCP
 │   │   ├── auth.py
 │   │   ├── availability.py
@@ -482,10 +492,13 @@ ADMIN_PHONE=+5511972741849
 # Seu telefone
 PHONE_NUMBER=+5511999999999
 
-# JWT (gerar: openssl rand -hex 32)
-JWT_SECRET=your_secret_key
+# JWT (OBRIGATÓRIO - gerar: openssl rand -hex 32)
+JWT_SECRET_KEY=<sua_chave_jwt_aqui>
 JWT_ALGORITHM=HS256
 JWT_EXPIRE_MINUTES=1440
+
+# MCP Server (OBRIGATÓRIO para produção - gerar: openssl rand -hex 32)
+MCP_API_KEY=<sua_chave_mcp_aqui>
 
 # Esportes
 SPORTS=surf,tennis
