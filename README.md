@@ -112,20 +112,99 @@ O servidor MCP usa **SSE (Server-Sent Events)** para permitir integração com:
 - **AI Agents** (Claude, GPT, etc.)
 - Qualquer cliente HTTP remoto
 
-### Endpoints SSE
+### Autenticação
 
-| Método | Endpoint | Descrição |
-|--------|----------|-----------|
-| GET | `http://localhost:8001/sse` | Conexão SSE (stream de eventos) |
-| POST | `http://localhost:8001/messages/` | Envio de mensagens para o servidor |
+O MCP Server implementa autenticação em dois níveis:
 
-### Configuração para Voice Agent (Twilio)
+1. **API Key** - Autentica o Voice Agent (aplicação)
+2. **Session Token** - Autentica o usuário (caller_id)
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                    Fluxo de Autenticação                     │
+├─────────────────────────────────────────────────────────────┤
+│                                                              │
+│  Twilio (Caller)              Voice Agent         MCP Server │
+│       │                           │                   │      │
+│       │── Liga ──────────────────▶│                   │      │
+│       │   caller_id: +55...       │                   │      │
+│       │                           │                   │      │
+│       │                           │── POST /auth/session ──▶│
+│       │                           │   X-API-Key: xxx         │
+│       │                           │   {caller_id: "+55..."}  │
+│       │                           │                   │      │
+│       │                           │◀── session_token ────────│
+│       │                           │                   │      │
+│       │                           │── GET /sse ─────────────▶│
+│       │                           │   Bearer: session_token  │
+│       │                           │                   │      │
+│       │                           │◀── SSE Stream ───────────│
+│       │                           │   (tools, resources)     │
+│                                                              │
+└─────────────────────────────────────────────────────────────┘
+```
+
+### Endpoints
+
+| Método | Endpoint | Headers | Descrição |
+|--------|----------|---------|-----------|
+| POST | `/auth/session` | `X-API-Key` | Criar sessão para caller_id |
+| GET | `/auth/validate` | `Bearer token` | Validar session token |
+| POST | `/auth/logout` | `Bearer token` | Encerrar sessão |
+| GET | `/health` | - | Health check |
+| GET | `/sse` | `Bearer token` | Conexão SSE |
+| POST | `/messages/` | `Bearer token` | Envio de mensagens |
+
+### Configuração
 
 ```bash
-# URL do MCP Server
-MCP_URL=http://your-server:8001/sse
+# .env
 
-# O voice agent conecta via SSE e envia comandos via POST
+# API Key para Voice Agent (gerar: openssl rand -hex 32)
+MCP_API_KEY=seu_api_key_secreto
+
+# Tempo de expiração da sessão em segundos (padrão: 600 = 10 min)
+MCP_SESSION_EXPIRY_SECONDS=600
+```
+
+> **Nota**: Se `MCP_API_KEY` não estiver configurado, o servidor roda em **modo desenvolvimento** (sem autenticação).
+
+### Exemplo: Voice Agent com Twilio
+
+```python
+import httpx
+
+MCP_URL = "http://mcp-server:8001"
+API_KEY = "seu_api_key_secreto"
+
+async def handle_call(caller_id: str):
+    # 1. Criar sessão para o caller
+    response = await httpx.post(
+        f"{MCP_URL}/auth/session",
+        headers={"X-API-Key": API_KEY},
+        json={"caller_id": caller_id}
+    )
+    session = response.json()
+
+    # session = {
+    #   "session_token": "sess_abc123...",
+    #   "expires_in": 600,
+    #   "user": {
+    #     "phone": "+5511999999999",
+    #     "name": "Rafael",
+    #     "has_beyond_token": true,
+    #     "member_ids": [12869]
+    #   }
+    # }
+
+    # 2. Conectar ao SSE com session token
+    async with httpx.stream(
+        "GET",
+        f"{MCP_URL}/sse",
+        headers={"Authorization": f"Bearer {session['session_token']}"}
+    ) as sse:
+        # Processar eventos MCP...
+        pass
 ```
 
 ### Iniciando o MCP Server
@@ -145,7 +224,7 @@ docker-compose --profile mcp down
 
 | Ferramenta | Parâmetros | Descrição |
 |------------|------------|-----------|
-| `check_auth_status` | `phone` | Verificar autenticação do telefone |
+| `check_auth_status` | `phone` | Verificar autenticação Beyond |
 | `request_beyond_sms` | `phone` | Solicitar SMS de verificação |
 | `verify_beyond_sms` | `phone`, `code`, `session_info` | Verificar código SMS |
 | `get_authenticated_phones` | - | Listar telefones autenticados |
@@ -154,12 +233,12 @@ docker-compose --profile mcp down
 | `book_session` | `member_name`, `date`, `time`, `level`, `wave_side`, `sport` | Reservar sessão |
 | `cancel_booking` | `voucher_code` | Cancelar reserva |
 | `list_bookings` | `member_name`, `sport` | Listar reservas ativas |
-| `swap_booking` | `voucher_code`, `new_member_name`, `sport` | Trocar membro da reserva |
+| `swap_booking` | `voucher_code`, `new_member_name`, `sport` | Trocar membro |
 | `get_members` | `sport` | Obter lista de membros |
 | `get_member_preferences` | `member_name`, `sport` | Preferências do membro |
-| `set_member_preferences` | `member_name`, `sessions`, `target_hours`, `target_dates`, `sport` | Definir preferências |
+| `set_member_preferences` | `member_name`, `sessions`, `...` | Definir preferências |
 | `delete_member_preferences` | `member_name`, `sport` | Remover preferências |
-| `start_auto_monitor` | `member_names`, `target_dates`, `duration_minutes`, `sport` | Iniciar monitoramento |
+| `start_auto_monitor` | `member_names`, `target_dates`, `...` | Iniciar monitoramento |
 | `check_monitor_status` | - | Status do monitoramento |
 
 ### Recursos MCP (Resources)
@@ -175,24 +254,23 @@ docker-compose --profile mcp down
 ### Exemplo de Uso com Voice Agent
 
 ```
-Usuário: "Quero reservar uma aula de surf para o Rafael amanhã às 8h"
+Ligação entra: caller_id = +5511999999999
 
-Voice Agent usa MCP Tools:
-1. get_members(sport="surf")
-   → Encontra membro "RAFAEL" (ID: 12869)
+1. Voice Agent cria sessão:
+   POST /auth/session
+   → session_token, has_beyond_token: true
 
-2. check_availability(sport="surf", date="2025-12-25")
-   → Verifica slots disponíveis
+2. Voice Agent conecta ao SSE:
+   GET /sse (Bearer session_token)
 
-3. book_session(
-     member_name="RAFAEL",
-     date="2025-12-25",
-     time="08:00",
-     level="Intermediario2",
-     wave_side="Lado_direito",
-     sport="surf"
-   )
-   → Reserva confirmada!
+3. Usuário: "Quero reservar surf para o Rafael amanhã às 8h"
+
+4. Voice Agent usa MCP Tools:
+   - get_members(sport="surf") → RAFAEL (ID: 12869)
+   - check_availability(date="2025-12-25") → slots disponíveis
+   - book_session(member_name="RAFAEL", date="2025-12-25", time="08:00")
+
+5. Resposta: "Reserva confirmada para Rafael, amanhã às 8h!"
 ```
 
 ---

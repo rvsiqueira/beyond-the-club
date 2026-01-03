@@ -78,13 +78,14 @@ services:
       - PYTHONPATH=/app
       - MCP_HOST=0.0.0.0
       - MCP_PORT=8001
+      # MCP_API_KEY and MCP_SESSION_EXPIRY_SECONDS are loaded from .env file
     depends_on:
       api:
         condition: service_healthy
     networks:
       - btc-network
     healthcheck:
-      test: ["CMD", "python", "-c", "import httpx; httpx.get('http://localhost:8001/sse', timeout=5)"]
+      test: ["CMD", "python", "-c", "import httpx; httpx.get('http://localhost:8001/health', timeout=5)"]
       interval: 30s
       timeout: 10s
       retries: 3
