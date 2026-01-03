@@ -3,18 +3,26 @@ MCP Server implementation.
 
 Exposes tools and resources for Claude to interact with
 the Beyond The Club booking system.
+
+Uses SSE (Server-Sent Events) transport for remote access
+by voice agents and other HTTP clients.
 """
 
 import logging
+import os
 from typing import Any
 
+import uvicorn
+from starlette.applications import Starlette
+from starlette.routing import Route, Mount
+from starlette.responses import Response
+
 from mcp.server import Server
-from mcp.server.stdio import stdio_server
+from mcp.server.sse import SseServerTransport
 from mcp.types import (
     Tool,
     TextContent,
     Resource,
-    ResourceTemplate,
 )
 
 from .tools import booking, availability, members, monitor, auth
@@ -480,18 +488,49 @@ async def read_resource(uri: str) -> str:
 
 # === Server Entry Point ===
 
-async def main():
-    """Run the MCP server."""
+# SSE transport for remote HTTP access
+sse = SseServerTransport("/messages/")
+
+
+async def handle_sse(request):
+    """Handle SSE connection from clients."""
+    logger.info(f"SSE connection from {request.client}")
+    async with sse.connect_sse(
+        request.scope, request.receive, request._send
+    ) as streams:
+        await server.run(
+            streams[0], streams[1],
+            server.create_initialization_options()
+        )
+    return Response()
+
+
+# Starlette app with SSE routes
+app = Starlette(
+    debug=False,
+    routes=[
+        Route("/sse", endpoint=handle_sse),
+        Mount("/messages/", app=sse.handle_post_message),
+    ]
+)
+
+
+def main():
+    """Run the MCP server with SSE transport."""
     logging.basicConfig(
         level=logging.INFO,
         format="%(asctime)s | %(levelname)-8s | %(name)s | %(message)s"
     )
-    logger.info("Starting Beyond The Club MCP Server...")
 
-    async with stdio_server() as (read_stream, write_stream):
-        await server.run(read_stream, write_stream, server.create_initialization_options())
+    host = os.getenv("MCP_HOST", "0.0.0.0")
+    port = int(os.getenv("MCP_PORT", "8001"))
+
+    logger.info(f"Starting Beyond The Club MCP Server (SSE) on {host}:{port}...")
+    logger.info("SSE endpoint: /sse")
+    logger.info("Messages endpoint: /messages/")
+
+    uvicorn.run(app, host=host, port=port)
 
 
 if __name__ == "__main__":
-    import asyncio
-    asyncio.run(main())
+    main()

@@ -36,12 +36,11 @@ ENV PYTHONUNBUFFERED=1
 ENV PYTHONDONTWRITEBYTECODE=1
 ENV PYTHONPATH=/app
 
-# MCP server runs on stdio, no port needed
-# But we expose a health check port
+# MCP server runs on SSE transport via HTTP
 EXPOSE 8001
 
 # Use entrypoint to ensure cache files exist
 ENTRYPOINT ["/docker-entrypoint.sh"]
 
-# Run the MCP server
+# Run the MCP server with SSE transport
 CMD ["python", "-m", "mcp.server"]
