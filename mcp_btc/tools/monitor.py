@@ -212,7 +212,7 @@ async def search_session(
     member_name: str,
     level: str,
     target_date: str,
-    target_hour: str,
+    target_hour: Optional[str] = None,
     wave_side: Optional[str] = None,
     auto_book: bool = True,
     duration_minutes: int = 120,
@@ -225,14 +225,17 @@ async def search_session(
     allows searching for a specific session:
     - Specific level (e.g., "Iniciante2") - required
     - Specific date (e.g., "2025-12-26") - required
-    - Specific hour (must be valid for the level) - required
+    - Specific hour (optional - if not specified, searches all valid hours in order)
     - Wave side (optional - searches both sides if not specified)
+
+    When hour is not specified, searches all valid hours for the level
+    in sequence from earliest to latest, trying both wave sides for each hour.
 
     Args:
         member_name: Name of the member to book for
         level: Session level (Iniciante1, Iniciante2, Intermediario1, Intermediario2, Avançado1, Avançado2)
         target_date: Target date (YYYY-MM-DD format)
-        target_hour: Target hour (HH:MM format, must be valid for level)
+        target_hour: Target hour (HH:MM format) - optional, searches all valid hours if not specified
         wave_side: Wave side (Lado_esquerdo or Lado_direito) - optional
         auto_book: If True, book immediately when slot found (default: True)
         duration_minutes: How long to run the search (default: 120 min)
@@ -251,8 +254,8 @@ async def search_session(
     if not valid_hours:
         return f"❌ Nível inválido: {level}\n\nNíveis válidos: {', '.join(SESSION_FIXED_HOURS.keys())}"
 
-    # Validate hour for the level
-    if target_hour not in valid_hours:
+    # Validate hour for the level (only if specified)
+    if target_hour and target_hour not in valid_hours:
         return f"❌ Horário {target_hour} inválido para {level}\n\nHorários válidos para {level}: {', '.join(valid_hours)}"
 
     # Validate wave_side if provided
@@ -281,6 +284,7 @@ async def search_session(
     _monitor_state["messages"] = []
 
     side_desc = wave_side if wave_side else "ambos os lados"
+    hour_desc = target_hour if target_hour else f"qualquer ({', '.join(valid_hours)})"
 
     try:
         result = services.monitor.run_session_search(
@@ -344,7 +348,7 @@ async def search_session(
                 f"❌ Sessão não encontrada\n",
                 f"👤 Membro: {member.social_name}",
                 f"📅 Data buscada: {target_date}",
-                f"⏰ Horário buscado: {target_hour}",
+                f"⏰ Horário buscado: {hour_desc}",
                 f"🎯 Nível buscado: {level} | Lado: {side_desc}",
                 f"\n⚠️ Motivo: {error}"
             ]

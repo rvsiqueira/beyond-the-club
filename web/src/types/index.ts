@@ -134,7 +134,7 @@ export interface SessionSearchRequest {
   member_id: number;
   level: string;
   target_date: string;
-  target_hour: string;
+  target_hour?: string;  // Optional - if not specified, searches all valid hours
   wave_side?: string;
   auto_book?: boolean;
   duration_minutes?: number;

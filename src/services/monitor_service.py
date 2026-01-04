@@ -301,7 +301,7 @@ class MonitorService(BaseService):
         member_id: int,
         level: str,
         target_date: str,
-        target_hour: str,
+        target_hour: Optional[str] = None,
         wave_side: Optional[str] = None,
         auto_book: bool = True,
         duration_minutes: int = 120,
@@ -315,14 +315,17 @@ class MonitorService(BaseService):
         allows the user to specify exactly which session they want:
         - Specific level (e.g., "Iniciante2") - required
         - Specific date (e.g., "2025-12-26") - required
-        - Specific hour (must be valid for the level) - required
+        - Specific hour (optional - if not specified, searches all valid hours in order)
         - Wave side (optional - if not specified, searches both sides)
+
+        When hour is not specified, searches all valid hours for the level
+        in sequence from earliest to latest, trying both wave sides for each hour.
 
         Args:
             member_id: Member ID to book for
             level: Session level (Iniciante1, Iniciante2, etc.)
             target_date: Target date (YYYY-MM-DD format)
-            target_hour: Target hour (HH:MM format, must be valid for level)
+            target_hour: Target hour (HH:MM format) - optional, searches all if not specified
             wave_side: Wave side (Lado_esquerdo or Lado_direito) - optional
             auto_book: If True, book immediately when slot found
             duration_minutes: How long to run the monitor (default: 120 min)
@@ -352,8 +355,8 @@ class MonitorService(BaseService):
             status_update(error_msg, "error")
             return {"success": False, "error": error_msg}
 
-        # Validate hour for the level
-        if target_hour not in valid_hours:
+        # Validate hour for the level (only if specified)
+        if target_hour and target_hour not in valid_hours:
             error_msg = f"Horário {target_hour} inválido para {level}. Horários válidos: {valid_hours}"
             status_update(error_msg, "error")
             return {"success": False, "error": error_msg}
@@ -365,8 +368,9 @@ class MonitorService(BaseService):
             status_update(error_msg, "error")
             return {"success": False, "error": error_msg}
 
-        # Determine which sides to search
+        # Determine which sides and hours to search
         sides_to_search = [wave_side] if wave_side else valid_sides
+        hours_to_search = [target_hour] if target_hour else valid_hours
 
         # Validate member
         member = self._member_service.get_member_by_id(member_id)
@@ -376,8 +380,9 @@ class MonitorService(BaseService):
             return {"success": False, "error": error_msg}
 
         side_desc = wave_side if wave_side else "ambos os lados"
+        hour_desc = target_hour if target_hour else f"qualquer ({', '.join(valid_hours)})"
         status_update(f"Busca de sessão iniciada para {member.social_name}")
-        status_update(f"Sessão: {level} | Lado: {side_desc} | Data: {target_date} | Horário: {target_hour}")
+        status_update(f"Sessão: {level} | Lado: {side_desc} | Data: {target_date} | Horário: {hour_desc}")
 
         start_time = time.time()
         end_time = start_time + (duration_minutes * 60)
@@ -393,37 +398,41 @@ class MonitorService(BaseService):
 
             slot_found = None
 
-            # Search in each side (one or both)
-            for side in sides_to_search:
-                combo_key = f"{level}/{side}"
+            # Search hours in order (earliest to latest), then sides for each hour
+            for hour in hours_to_search:
+                if slot_found:
+                    break
 
-                try:
-                    # Search for the specific slot
-                    slot = self._availability_service.find_slot_for_combo(
-                        level=level,
-                        wave_side=side,
-                        member_id=member_id,
-                        target_dates=[target_date],
-                        target_hours=[target_hour]
-                    )
+                for side in sides_to_search:
+                    combo_key = f"{level}/{side}@{hour}"
 
-                    if slot:
-                        # Validate that the slot matches the exact date and hour requested
-                        if slot.date != target_date:
-                            status_update(f"  {combo_key}: data diferente ({slot.date})", "warning")
-                            slot = None
-                        elif slot.interval != target_hour:
-                            status_update(f"  {combo_key}: horário diferente ({slot.interval})", "warning")
-                            slot = None
+                    try:
+                        # Search for the specific slot
+                        slot = self._availability_service.find_slot_for_combo(
+                            level=level,
+                            wave_side=side,
+                            member_id=member_id,
+                            target_dates=[target_date],
+                            target_hours=[hour]
+                        )
 
-                    if slot:
-                        slot_found = slot
-                        break  # Found a valid slot, stop searching sides
-                    else:
-                        status_update(f"  {combo_key}: não disponível")
+                        if slot:
+                            # Validate that the slot matches the exact date and hour requested
+                            if slot.date != target_date:
+                                status_update(f"  {combo_key}: data diferente ({slot.date})", "warning")
+                                slot = None
+                            elif slot.interval != hour:
+                                status_update(f"  {combo_key}: horário diferente ({slot.interval})", "warning")
+                                slot = None
 
-                except Exception as e:
-                    status_update(f"  Erro ao buscar {combo_key}: {e}", "error")
+                        if slot:
+                            slot_found = slot
+                            break  # Found a valid slot, stop searching sides for this hour
+                        else:
+                            status_update(f"  {combo_key}: não disponível")
+
+                    except Exception as e:
+                        status_update(f"  Erro ao buscar {combo_key}: {e}", "error")
 
             if slot_found:
                 status_update(f"Slot encontrado! {slot_found.date} {slot_found.interval} ({slot_found.combo_key})")
@@ -483,7 +492,7 @@ class MonitorService(BaseService):
         if not self._running:
             status_update("Busca interrompida pelo usuário.")
         else:
-            status_update(f"Tempo esgotado. Sessão não encontrada: {level} | {side_desc} | {target_date} | {target_hour}")
+            status_update(f"Tempo esgotado. Sessão não encontrada: {level} | {side_desc} | {target_date} | {hour_desc}")
 
         self._running = False
         return {

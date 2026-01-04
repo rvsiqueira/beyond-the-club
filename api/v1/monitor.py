@@ -38,7 +38,7 @@ class SessionSearchRequest(BaseModel):
     member_id: int = Field(..., description="Member ID to book for")
     level: str = Field(..., description="Session level (Iniciante1, Iniciante2, Intermediario1, Intermediario2, Avançado1, Avançado2)")
     target_date: str = Field(..., description="Target date (YYYY-MM-DD)")
-    target_hour: str = Field(..., description="Target hour (HH:MM, must be valid for the level)")
+    target_hour: Optional[str] = Field(None, description="Target hour (HH:MM) - optional, searches all valid hours in order if not specified")
     wave_side: Optional[str] = Field(None, description="Wave side (Lado_esquerdo or Lado_direito) - optional, searches both if not specified")
     auto_book: bool = Field(True, description="Auto-book when slot found")
     duration_minutes: int = Field(120, description="Duration in minutes")
@@ -252,9 +252,9 @@ async def start_session_search(
             detail=f"Invalid level: {request.level}. Valid levels: {list(SESSION_FIXED_HOURS.keys())}"
         )
 
-    # Validate hour for the level
+    # Validate hour for the level (only if specified)
     valid_hours = SESSION_FIXED_HOURS[request.level]
-    if request.target_hour not in valid_hours:
+    if request.target_hour and request.target_hour not in valid_hours:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=f"Invalid hour {request.target_hour} for {request.level}. Valid hours: {valid_hours}"
@@ -301,6 +301,7 @@ async def start_session_search(
     }
 
     side_desc = request.wave_side if request.wave_side else "ambos os lados"
+    hour_desc = request.target_hour if request.target_hour else "qualquer horário"
 
     return {
         "monitor_id": monitor_id,
@@ -312,7 +313,7 @@ async def start_session_search(
             "level": request.level,
             "wave_side": side_desc,
             "date": request.target_date,
-            "hour": request.target_hour
+            "hour": hour_desc
         }
     }
 

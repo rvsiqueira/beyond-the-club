@@ -1,10 +1,10 @@
 'use client';
 
-import { useState, useEffect } from 'react';
-import { GraduationCap, Waves, Calendar, Clock, Play, Square, CheckCircle, Radio, XCircle } from 'lucide-react';
+import { useState, useEffect, useMemo, useRef } from 'react';
+import { GraduationCap, Waves, Calendar, Clock, Play, Square, CheckCircle, Radio, XCircle, ArrowLeft, ArrowRight } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle, Button, Badge } from '@/components/ui';
 import { useMembers, useSessionOptions, useStartSessionSearch, useSessionSearchWebSocket } from '@/hooks';
-import { getTodayDate, getDateDaysFromNow, formatLevel, formatWaveSide } from '@/lib/utils';
+import { getTodayDate, getDateDaysFromNow, formatLevel, formatWaveSide, formatDateBR } from '@/lib/utils';
 import type { Member } from '@/types';
 
 // Wave levels with visual configuration
@@ -40,6 +40,9 @@ export function SessionSearchForm() {
   // Monitor state
   const [monitorId, setMonitorId] = useState<string | null>(null);
 
+  // Ref for date scroll container
+  const dateScrollRef = useRef<HTMLDivElement>(null);
+
   const { messages, isConnected, status, result, connect, disconnect, sendStop, reset } =
     useSessionSearchWebSocket(monitorId);
 
@@ -50,6 +53,41 @@ export function SessionSearchForm() {
   const availableHours = selectedLevel && sessionOptions?.hours_by_level
     ? sessionOptions.hours_by_level[selectedLevel] || []
     : [];
+
+  // Generate available dates (next 14 days)
+  const availableDates = useMemo(() => {
+    const dates: string[] = [];
+    const today = new Date();
+    for (let i = 0; i < 14; i++) {
+      const date = new Date(today);
+      date.setDate(today.getDate() + i);
+      dates.push(date.toISOString().split('T')[0]);
+    }
+    return dates;
+  }, []);
+
+  // Get short day name for date display
+  const getShortDate = (dateStr: string) => {
+    const [year, month, day] = dateStr.split('-').map(Number);
+    const date = new Date(year, month - 1, day);
+    const weekday = date.toLocaleDateString('pt-BR', { weekday: 'short' }).replace('.', '');
+    return { day, weekday: weekday.charAt(0).toUpperCase() + weekday.slice(1) };
+  };
+
+  // Scroll navigation (arrows control scroll, not selection)
+  const scrollLeft = () => {
+    if (dateScrollRef.current) {
+      const scrollAmount = 180; // ~3 date buttons width
+      dateScrollRef.current.scrollBy({ left: -scrollAmount, behavior: 'smooth' });
+    }
+  };
+
+  const scrollRight = () => {
+    if (dateScrollRef.current) {
+      const scrollAmount = 180; // ~3 date buttons width
+      dateScrollRef.current.scrollBy({ left: scrollAmount, behavior: 'smooth' });
+    }
+  };
 
   // Reset hour when level changes
   useEffect(() => {
@@ -67,14 +105,12 @@ export function SessionSearchForm() {
   const handleStart = async () => {
     if (!selectedMember || !selectedLevel || !selectedDate) return;
 
-    // Validate hour is selected if available hours exist
-    if (availableHours.length > 0 && !selectedHour) return;
-
+    // Hour is now optional - empty string means search all available hours
     const request = {
       member_id: selectedMember,
       level: selectedLevel,
       target_date: selectedDate,
-      target_hour: selectedHour || availableHours[0],
+      target_hour: selectedHour || undefined,  // undefined = search all hours
       wave_side: selectedWaveSide || undefined,
       auto_book: true,
       duration_minutes: duration,
@@ -110,7 +146,7 @@ export function SessionSearchForm() {
     }
   };
 
-  const isFormValid = selectedMember && selectedLevel && selectedDate && (availableHours.length === 0 || selectedHour);
+  const isFormValid = selectedMember && selectedLevel && selectedDate;
 
   return (
     <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
@@ -186,21 +222,51 @@ export function SessionSearchForm() {
             </div>
           </div>
 
-          {/* Date Selection */}
+          {/* Date Selection - Squares like availability page */}
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-2 flex items-center gap-2">
               <Calendar className="h-4 w-4" />
               Data *
             </label>
-            <input
-              type="date"
-              value={selectedDate}
-              onChange={(e) => setSelectedDate(e.target.value)}
-              min={getTodayDate()}
-              max={getDateDaysFromNow(30)}
-              disabled={status === 'running'}
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500 disabled:opacity-50"
-            />
+            <div className="flex items-center gap-2">
+              <button
+                onClick={scrollLeft}
+                disabled={status === 'running'}
+                className="p-2 rounded-lg hover:bg-gray-100 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+              >
+                <ArrowLeft className="h-4 w-4" />
+              </button>
+
+              <div ref={dateScrollRef} className="flex gap-1 overflow-x-auto pb-1 scrollbar-hide flex-1">
+                {availableDates.map((date) => {
+                  const { day, weekday } = getShortDate(date);
+                  const isSelected = date === selectedDate;
+                  return (
+                    <button
+                      key={date}
+                      onClick={() => setSelectedDate(date)}
+                      disabled={status === 'running'}
+                      className={`flex flex-col items-center px-3 py-2 rounded-lg min-w-[52px] transition-all ${
+                        isSelected
+                          ? 'bg-primary-600 text-white shadow-md'
+                          : 'hover:bg-gray-100 text-gray-600'
+                      } ${status === 'running' ? 'opacity-50 cursor-not-allowed' : ''}`}
+                    >
+                      <span className="text-[10px] font-medium uppercase">{weekday}</span>
+                      <span className="text-lg font-bold">{day}</span>
+                    </button>
+                  );
+                })}
+              </div>
+
+              <button
+                onClick={scrollRight}
+                disabled={status === 'running'}
+                className="p-2 rounded-lg hover:bg-gray-100 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+              >
+                <ArrowRight className="h-4 w-4" />
+              </button>
+            </div>
           </div>
 
           {/* Wave Side Selection (Optional) */}
@@ -374,21 +440,44 @@ export function SessionSearchForm() {
                 </Badge>
               </div>
 
-              {/* Result */}
-              {result && (
-                <div className="p-3 bg-green-50 border border-green-200 rounded-lg">
-                  <p className="text-sm font-medium text-green-800 mb-2">Sessao Encontrada!</p>
-                  {result.voucher && (
-                    <p className="text-xs text-green-700">Voucher: {String(result.voucher)}</p>
-                  )}
-                  {result.slot && (
-                    <div className="text-xs text-green-700 mt-1">
-                      <p>Data: {(result.slot as any).date} - {(result.slot as any).interval}</p>
-                      <p>Nivel: {formatLevel((result.slot as any).level)}</p>
-                      <p>Lado: {formatWaveSide((result.slot as any).wave_side)}</p>
+              {/* Result - Show success (green) or failure (red) based on result.success */}
+              {result && Object.keys(result).length > 0 && (
+                <>
+                  {(result as { success?: boolean }).success ? (
+                    <div className="p-3 bg-green-50 border border-green-200 rounded-lg">
+                      <p className="text-sm font-medium text-green-800 mb-2">Sessao Encontrada!</p>
+                      {(result as { voucher?: string }).voucher && (
+                        <p className="text-xs text-green-700">Voucher: {(result as { voucher: string }).voucher}</p>
+                      )}
+                      {(result as { access_code?: string }).access_code && (
+                        <p className="text-xs text-green-700">Codigo de Acesso: {(result as { access_code: string }).access_code}</p>
+                      )}
+                      {(result as { slot?: { date: string; interval: string; level: string; wave_side: string } }).slot && (
+                        <div className="text-xs text-green-700 mt-1">
+                          <p>Data: {formatDateBR((result as { slot: { date: string } }).slot.date)} - {(result as { slot: { interval: string } }).slot.interval}</p>
+                          <p>Nivel: {formatLevel((result as { slot: { level: string } }).slot.level)}</p>
+                          <p>Lado: {formatWaveSide((result as { slot: { wave_side: string } }).slot.wave_side)}</p>
+                        </div>
+                      )}
+                    </div>
+                  ) : (
+                    <div className="p-3 bg-red-50 border border-red-200 rounded-lg">
+                      <p className="text-sm font-medium text-red-800 mb-2">Sessao Nao Encontrada</p>
+                      {(result as { error?: string }).error && (
+                        <p className="text-xs text-red-700">{(result as { error: string }).error}</p>
+                      )}
+                      {(result as { searched?: { level: string; wave_side?: string; date: string; hour?: string } }).searched && (
+                        <div className="text-xs text-red-600 mt-1">
+                          <p>Busca: {(result as { searched: { level: string } }).searched.level}</p>
+                          <p>Data: {formatDateBR((result as { searched: { date: string } }).searched.date)}</p>
+                          {(result as { searched: { hour?: string } }).searched.hour && (
+                            <p>Horario: {(result as { searched: { hour: string } }).searched.hour}</p>
+                          )}
+                        </div>
+                      )}
                     </div>
                   )}
-                </div>
+                </>
               )}
 
               {/* Logs */}

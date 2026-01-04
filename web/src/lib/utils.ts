@@ -22,6 +22,13 @@ export function formatDate(date: string): string {
   return `${dayMonth} (${weekday})`;
 }
 
+export function formatDateBR(date: string): string {
+  // Convert YYYY-MM-DD to dd/mm/yyyy
+  if (!date) return '';
+  const [year, month, day] = date.split('-');
+  return `${day}/${month}/${year}`;
+}
+
 export function formatPhone(phone: string): string {
   const cleaned = phone.replace(/\D/g, '');
   if (cleaned.length === 11) {
