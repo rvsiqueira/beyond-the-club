@@ -16,10 +16,8 @@ import type {
   SportConfig,
 } from '@/types';
 
-// Use direct API URL in browser (client-side)
-const API_BASE = typeof window !== 'undefined'
-  ? 'http://localhost:8000/api/v1'  // Browser calls API directly
-  : '/api/v1';  // Server-side uses rewrite
+// API base URL - always use relative path (routed by nginx in production)
+const API_BASE = '/api/v1';
 
 // Custom error type for Beyond auth requirement
 export interface BeyondAuthError extends Error {
@@ -305,9 +303,10 @@ class ApiClient {
 
   // WebSocket for Monitor
   connectMonitorWs(monitorId: string, onMessage: (data: unknown) => void): WebSocket {
-    // Connect directly to API server for WebSocket (Next.js rewrites don't support WS)
-    const wsUrl = API_BASE.replace('http://', 'ws://').replace('https://', 'wss://');
-    const ws = new WebSocket(`${wsUrl}/monitor/ws/${monitorId}`);
+    // Build WebSocket URL based on current page location
+    const protocol = typeof window !== 'undefined' && window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+    const host = typeof window !== 'undefined' ? window.location.host : 'localhost:3000';
+    const ws = new WebSocket(`${protocol}//${host}${API_BASE}/monitor/ws/${monitorId}`);
 
     ws.onmessage = (event) => {
       try {
@@ -344,8 +343,10 @@ class ApiClient {
   }
 
   connectSessionSearchWs(monitorId: string, onMessage: (data: unknown) => void): WebSocket {
-    const wsUrl = API_BASE.replace('http://', 'ws://').replace('https://', 'wss://');
-    const ws = new WebSocket(`${wsUrl}/monitor/ws/${monitorId}/session`);
+    // Build WebSocket URL based on current page location
+    const protocol = typeof window !== 'undefined' && window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+    const host = typeof window !== 'undefined' ? window.location.host : 'localhost:3000';
+    const ws = new WebSocket(`${protocol}//${host}${API_BASE}/monitor/ws/${monitorId}/session`);
 
     ws.onmessage = (event) => {
       try {
