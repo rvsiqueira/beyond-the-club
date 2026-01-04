@@ -11,13 +11,15 @@ import type {
   CreateBookingRequest,
   MonitorStatus,
   StartMonitorRequest,
+  SessionSearchRequest,
+  SessionOptionsResponse,
   SportConfig,
 } from '@/types';
 
-// Use relative URL so it works in both development and production
-// In development: proxied by Next.js or direct to localhost
-// In production: proxied by nginx to api container
-const API_BASE = '/api/v1';
+// Use direct API URL in browser (client-side)
+const API_BASE = typeof window !== 'undefined'
+  ? 'http://localhost:8000/api/v1'  // Browser calls API directly
+  : '/api/v1';  // Server-side uses rewrite
 
 // Custom error type for Beyond auth requirement
 export interface BeyondAuthError extends Error {
@@ -306,6 +308,44 @@ class ApiClient {
     // Connect directly to API server for WebSocket (Next.js rewrites don't support WS)
     const wsUrl = API_BASE.replace('http://', 'ws://').replace('https://', 'wss://');
     const ws = new WebSocket(`${wsUrl}/monitor/ws/${monitorId}`);
+
+    ws.onmessage = (event) => {
+      try {
+        const data = JSON.parse(event.data);
+        onMessage(data);
+      } catch {
+        console.error('Failed to parse WebSocket message');
+      }
+    };
+
+    return ws;
+  }
+
+  // Session Search
+  async getSessionOptions(): Promise<SessionOptionsResponse> {
+    return this.fetch('/monitor/session-options');
+  }
+
+  async startSessionSearch(
+    data: SessionSearchRequest,
+    sport: string = 'surf'
+  ): Promise<{
+    monitor_id: string;
+    status: string;
+    message: string;
+    member_id: number;
+    member_name: string;
+    session: { level: string; wave_side: string; date: string; hour: string };
+  }> {
+    return this.fetch(`/monitor/search-session?sport=${sport}`, {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  }
+
+  connectSessionSearchWs(monitorId: string, onMessage: (data: unknown) => void): WebSocket {
+    const wsUrl = API_BASE.replace('http://', 'ws://').replace('https://', 'wss://');
+    const ws = new WebSocket(`${wsUrl}/monitor/ws/${monitorId}/session`);
 
     ws.onmessage = (event) => {
       try {

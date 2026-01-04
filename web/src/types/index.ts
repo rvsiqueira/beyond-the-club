@@ -129,6 +129,32 @@ export interface StartMonitorRequest {
   check_interval_seconds?: number;
 }
 
+// Session Search
+export interface SessionSearchRequest {
+  member_id: number;
+  level: string;
+  target_date: string;
+  target_hour?: string;  // Optional - if not specified, searches all valid hours
+  wave_side?: string;
+  auto_book?: boolean;
+  duration_minutes?: number;
+  check_interval_seconds?: number;
+}
+
+export interface SessionOptionsResponse {
+  levels: string[];
+  wave_sides: string[];
+  hours_by_level: Record<string, string[]>;
+}
+
+export interface SessionSearchResult {
+  success: boolean;
+  voucher?: string;
+  access_code?: string;
+  slot?: AvailableSlot;
+  error?: string;
+}
+
 // Sports
 export interface SportConfig {
   name: string;

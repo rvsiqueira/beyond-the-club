@@ -1,11 +1,19 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
-import { Radio, Play, Square, CheckCircle, XCircle, Clock, Users, Calendar, X, PartyPopper } from 'lucide-react';
+import { Radio, Play, Square, CheckCircle, XCircle, Clock, Users, Search, Calendar, X, PartyPopper } from 'lucide-react';
 import { MainLayout } from '@/components/layout';
 import { Card, CardContent, CardHeader, CardTitle, Button, Badge } from '@/components/ui';
 import { useMembers, useRefreshMembers, useStartMonitor, useMonitorWebSocket } from '@/hooks';
+import { SessionSearchForm } from '@/components/SessionSearchForm';
 import type { Member } from '@/types';
+
+type TabType = 'specific' | 'preferences';
+
+const TABS = [
+  { id: 'specific' as TabType, label: 'Busca Especifica', icon: Search },
+  { id: 'preferences' as TabType, label: 'Auto Monitor', icon: Users },
+];
 
 interface BookingResult {
   memberId: number;
@@ -18,6 +26,45 @@ interface BookingResult {
 }
 
 export default function MonitorPage() {
+  const [activeTab, setActiveTab] = useState<TabType>('specific');
+
+  return (
+    <MainLayout title="Monitor">
+      {/* Tab Navigation */}
+      <div className="mb-6 border-b border-gray-200">
+        <nav className="flex gap-0" aria-label="Tabs">
+          {TABS.map((tab) => {
+            const Icon = tab.icon;
+            const isActive = activeTab === tab.id;
+            return (
+              <button
+                key={tab.id}
+                onClick={() => setActiveTab(tab.id)}
+                className={`flex items-center gap-2 px-6 py-3 text-sm font-medium border-b-2 transition-colors ${
+                  isActive
+                    ? 'border-primary-600 text-primary-600'
+                    : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+                }`}
+              >
+                <Icon className="h-4 w-4" />
+                {tab.label}
+              </button>
+            );
+          })}
+        </nav>
+      </div>
+
+      {/* Tab Content */}
+      {activeTab === 'specific' ? (
+        <SessionSearchForm />
+      ) : (
+        <PreferencesMonitor />
+      )}
+    </MainLayout>
+  );
+}
+
+function PreferencesMonitor() {
   const { data: membersData, isLoading: membersLoading } = useMembers();
   const refreshMembersMutation = useRefreshMembers();
   const startMutation = useStartMonitor();
@@ -129,7 +176,7 @@ export default function MonitorPage() {
   };
 
   return (
-    <MainLayout title="Auto Monitor">
+    <>
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {/* Configuration */}
         <Card>
@@ -326,84 +373,67 @@ export default function MonitorPage() {
 
       {/* Success Modal */}
       {showSuccessModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center">
-          {/* Backdrop */}
-          <div
-            className="absolute inset-0 bg-black/50 backdrop-blur-sm"
-            onClick={handleCloseSuccessModal}
-          />
-
-          {/* Modal */}
-          <div className="relative bg-white rounded-2xl shadow-2xl max-w-md w-full mx-4 overflow-hidden">
-            {/* Header with gradient */}
-            <div className="bg-gradient-to-r from-green-500 to-emerald-600 px-6 py-8 text-center text-white">
-              <div className="inline-flex items-center justify-center w-16 h-16 bg-white/20 rounded-full mb-4">
-                <PartyPopper className="h-8 w-8" />
-              </div>
-              <h2 className="text-2xl font-bold">Agendamento Confirmado!</h2>
-              <p className="text-green-100 mt-1">Sessão reservada com sucesso</p>
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-2xl max-w-lg w-full shadow-2xl overflow-hidden">
+            {/* Header */}
+            <div className="bg-gradient-to-r from-green-500 to-emerald-600 p-6 text-white text-center">
+              <PartyPopper className="h-16 w-16 mx-auto mb-4" />
+              <h2 className="text-2xl font-bold">Reserva Confirmada!</h2>
+              <p className="text-green-100 mt-1">
+                {bookingResults.length === 1
+                  ? 'Sua sessao foi agendada com sucesso'
+                  : `${bookingResults.length} sessoes foram agendadas com sucesso`}
+              </p>
             </div>
 
             {/* Content */}
-            <div className="px-6 py-6">
-              {bookingResults.map((booking, idx) => (
+            <div className="p-6 max-h-80 overflow-y-auto">
+              {bookingResults.map((result, idx) => (
                 <div
                   key={idx}
-                  className="bg-gray-50 rounded-xl p-4 mb-4 last:mb-0"
+                  className={`${idx > 0 ? 'mt-4 pt-4 border-t border-gray-100' : ''}`}
                 >
                   <div className="flex items-center gap-3 mb-3">
-                    <div className="w-10 h-10 bg-primary-100 rounded-full flex items-center justify-center">
-                      <Users className="h-5 w-5 text-primary-600" />
+                    <div className="w-10 h-10 bg-green-100 rounded-full flex items-center justify-center">
+                      <CheckCircle className="h-5 w-5 text-green-600" />
                     </div>
                     <div>
-                      <p className="font-semibold text-gray-900">{booking.memberName}</p>
-                      <p className="text-sm text-gray-500">Membro</p>
+                      <p className="font-semibold text-gray-900">{result.memberName}</p>
+                      <p className="text-sm text-gray-500">
+                        {result.level} - {result.waveSide}
+                      </p>
                     </div>
                   </div>
 
-                  <div className="grid grid-cols-2 gap-3 text-sm">
-                    <div className="bg-white rounded-lg p-3 border border-gray-100">
-                      <p className="text-gray-500 text-xs uppercase tracking-wide">Data</p>
-                      <p className="font-semibold text-gray-900">{booking.date}</p>
+                  <div className="bg-gray-50 rounded-lg p-4 space-y-2">
+                    <div className="flex items-center gap-2 text-gray-700">
+                      <Calendar className="h-4 w-4 text-gray-400" />
+                      <span>{result.date} as {result.time}</span>
                     </div>
-                    <div className="bg-white rounded-lg p-3 border border-gray-100">
-                      <p className="text-gray-500 text-xs uppercase tracking-wide">Horário</p>
-                      <p className="font-semibold text-gray-900">{booking.time}</p>
-                    </div>
-                    <div className="bg-white rounded-lg p-3 border border-gray-100">
-                      <p className="text-gray-500 text-xs uppercase tracking-wide">Nível</p>
-                      <p className="font-semibold text-gray-900">{booking.level}</p>
-                    </div>
-                    <div className="bg-white rounded-lg p-3 border border-gray-100">
-                      <p className="text-gray-500 text-xs uppercase tracking-wide">Lado</p>
-                      <p className="font-semibold text-gray-900">{booking.waveSide}</p>
+                    <div className="flex items-center justify-between">
+                      <span className="text-sm text-gray-500">Codigo de Acesso:</span>
+                      <code className="bg-green-100 text-green-800 px-3 py-1 rounded-lg font-mono font-bold">
+                        {result.accessCode}
+                      </code>
                     </div>
                   </div>
-
-                  {booking.accessCode && (
-                    <div className="mt-3 bg-primary-50 rounded-lg p-3 border border-primary-100">
-                      <p className="text-primary-600 text-xs uppercase tracking-wide">Código de Acesso</p>
-                      <p className="font-mono font-bold text-primary-700 text-lg">{booking.accessCode}</p>
-                    </div>
-                  )}
                 </div>
               ))}
             </div>
 
             {/* Footer */}
-            <div className="px-6 pb-6">
+            <div className="p-4 bg-gray-50 border-t border-gray-100">
               <Button
                 variant="primary"
                 className="w-full"
                 onClick={handleCloseSuccessModal}
               >
-                <CheckCircle className="h-4 w-4 mr-2" />
                 Fechar
               </Button>
             </div>
           </div>
         </div>
       )}
-    </MainLayout>
+    </>
   );
 }

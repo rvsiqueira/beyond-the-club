@@ -16,4 +16,5 @@ __all__ = [
     "normalize_phone",
     "UserStore",
     "User",
+    "normalize_phone",
 ]

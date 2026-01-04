@@ -12,6 +12,7 @@ from .base import BaseService, ServiceContext
 from .member_service import MemberService
 from .availability_service import AvailabilityService
 from .booking_service import BookingService
+from ..config import SESSION_FIXED_HOURS, get_valid_hours_for_level
 
 logger = logging.getLogger(__name__)
 
@@ -147,6 +148,12 @@ class MonitorService(BaseService):
                         )
 
                         if slot:
+                            # Validate that the slot matches the requested date filter (if specified)
+                            if target_dates and slot.date not in target_dates:
+                                status_update(f"  Slot com data diferente: {slot.date} (esperado: {target_dates})", "warning")
+                                slot = None
+
+                        if slot:
                             status_update(f"  Slot encontrado! {slot.date} {slot.interval} ({slot.combo_key})")
 
                             try:
@@ -179,7 +186,7 @@ class MonitorService(BaseService):
                                 else:
                                     status_update(f"  Erro ao agendar: {e}", "error")
                                     # Continue to next preference
-                        else:
+                        if not slot:
                             status_update(f"  Nenhum slot disponivel para {combo_key}")
 
                     except Exception as e:
@@ -288,3 +295,326 @@ class MonitorService(BaseService):
                 }
 
         return results
+
+    def run_session_search(
+        self,
+        member_id: int,
+        level: str,
+        target_date: str,
+        target_hour: Optional[str] = None,
+        wave_side: Optional[str] = None,
+        auto_book: bool = True,
+        duration_minutes: int = 120,
+        check_interval_seconds: int = 30,
+        on_status_update: Optional[Callable[[str, str], None]] = None
+    ) -> Dict:
+        """
+        Search and optionally book a specific session with fixed parameters.
+
+        Unlike run_auto_monitor which uses member preferences, this method
+        allows the user to specify exactly which session they want:
+        - Specific level (e.g., "Iniciante2") - required
+        - Specific date (e.g., "2025-12-26") - required
+        - Specific hour (optional - if not specified, searches all valid hours in order)
+        - Wave side (optional - if not specified, searches both sides)
+
+        When hour is not specified, searches all valid hours for the level
+        in sequence from earliest to latest, trying both wave sides for each hour.
+
+        Args:
+            member_id: Member ID to book for
+            level: Session level (Iniciante1, Iniciante2, etc.)
+            target_date: Target date (YYYY-MM-DD format)
+            target_hour: Target hour (HH:MM format) - optional, searches all if not specified
+            wave_side: Wave side (Lado_esquerdo or Lado_direito) - optional
+            auto_book: If True, book immediately when slot found
+            duration_minutes: How long to run the monitor (default: 120 min)
+            check_interval_seconds: How often to check (default: 30 sec)
+            on_status_update: Optional callback for status updates
+
+        Returns:
+            Dict with success/error info and booking details
+        """
+        self.require_initialized()
+
+        # Helper to log and optionally callback
+        def status_update(msg: str, level_type: str = "info"):
+            if level_type == "info":
+                logger.info(msg)
+            elif level_type == "error":
+                logger.error(msg)
+            elif level_type == "warning":
+                logger.warning(msg)
+            if on_status_update:
+                on_status_update(msg, level_type)
+
+        # Validate level
+        valid_hours = get_valid_hours_for_level(level)
+        if not valid_hours:
+            error_msg = f"Nível inválido: {level}. Níveis válidos: {list(SESSION_FIXED_HOURS.keys())}"
+            status_update(error_msg, "error")
+            return {"success": False, "error": error_msg}
+
+        # Validate hour for the level (only if specified)
+        if target_hour and target_hour not in valid_hours:
+            error_msg = f"Horário {target_hour} inválido para {level}. Horários válidos: {valid_hours}"
+            status_update(error_msg, "error")
+            return {"success": False, "error": error_msg}
+
+        # Validate wave_side if provided
+        valid_sides = ["Lado_esquerdo", "Lado_direito"]
+        if wave_side and wave_side not in valid_sides:
+            error_msg = f"Lado inválido: {wave_side}. Lados válidos: {valid_sides}"
+            status_update(error_msg, "error")
+            return {"success": False, "error": error_msg}
+
+        # Determine which sides and hours to search
+        sides_to_search = [wave_side] if wave_side else valid_sides
+        hours_to_search = [target_hour] if target_hour else valid_hours
+
+        # Validate member
+        member = self._member_service.get_member_by_id(member_id)
+        if not member:
+            error_msg = f"Membro {member_id} não encontrado"
+            status_update(error_msg, "error")
+            return {"success": False, "error": error_msg}
+
+        side_desc = wave_side if wave_side else "ambos os lados"
+        hour_desc = target_hour if target_hour else f"qualquer ({', '.join(valid_hours)})"
+        status_update(f"Busca de sessão iniciada para {member.social_name}")
+        status_update(f"Sessão: {level} | Lado: {side_desc} | Data: {target_date} | Horário: {hour_desc}")
+
+        start_time = time.time()
+        end_time = start_time + (duration_minutes * 60)
+        self._running = True
+        check_count = 0
+
+        while time.time() < end_time and self._running:
+            check_count += 1
+            elapsed = int(time.time() - start_time)
+            remaining = int((end_time - time.time()) / 60)
+
+            status_update(f"\n=== Check #{check_count} | {elapsed}s decorridos | {remaining} min restantes ===")
+
+            slot_found = None
+
+            # Search hours in order (earliest to latest), then sides for each hour
+            for hour in hours_to_search:
+                if slot_found:
+                    break
+
+                for side in sides_to_search:
+                    combo_key = f"{level}/{side}@{hour}"
+
+                    try:
+                        # Search for the specific slot
+                        slot = self._availability_service.find_slot_for_combo(
+                            level=level,
+                            wave_side=side,
+                            member_id=member_id,
+                            target_dates=[target_date],
+                            target_hours=[hour]
+                        )
+
+                        if slot:
+                            # Validate that the slot matches the exact date and hour requested
+                            if slot.date != target_date:
+                                status_update(f"  {combo_key}: data diferente ({slot.date})", "warning")
+                                slot = None
+                            elif slot.interval != hour:
+                                status_update(f"  {combo_key}: horário diferente ({slot.interval})", "warning")
+                                slot = None
+
+                        if slot:
+                            slot_found = slot
+                            break  # Found a valid slot, stop searching sides for this hour
+                        else:
+                            status_update(f"  {combo_key}: não disponível")
+
+                    except Exception as e:
+                        status_update(f"  Erro ao buscar {combo_key}: {e}", "error")
+
+            if slot_found:
+                status_update(f"Slot encontrado! {slot_found.date} {slot_found.interval} ({slot_found.combo_key})")
+
+                if auto_book:
+                    try:
+                        result = self._booking_service.create_booking(slot_found, member_id)
+                        voucher = result.get("voucherCode", "N/A")
+                        access = result.get("accessCode", result.get("invitation", {}).get("accessCode", "N/A"))
+
+                        status_update(f"AGENDADO! Voucher: {voucher} | Access: {access}")
+
+                        self._running = False
+                        return {
+                            "success": True,
+                            "voucher": voucher,
+                            "access_code": access,
+                            "slot": slot_found.to_dict(),
+                            "member_name": member.social_name,
+                            "member_id": member_id
+                        }
+
+                    except Exception as e:
+                        error_msg = str(e)
+                        if "ja possui" in error_msg.lower() or "already" in error_msg.lower():
+                            status_update("Membro já possui agendamento ativo", "warning")
+                            self._running = False
+                            return {
+                                "success": False,
+                                "error": "Membro já possui agendamento ativo",
+                                "member_name": member.social_name
+                            }
+                        else:
+                            status_update(f"Erro ao agendar: {e}", "error")
+                            # Continue searching
+                else:
+                    # Slot found but auto_book is disabled
+                    status_update("Slot encontrado (auto_book desabilitado)")
+                    self._running = False
+                    return {
+                        "success": True,
+                        "booked": False,
+                        "slot": slot_found.to_dict(),
+                        "member_name": member.social_name,
+                        "member_id": member_id
+                    }
+
+            # Wait before next check
+            if time.time() < end_time and self._running:
+                status_update(f"Aguardando {check_interval_seconds}s para próximo check...")
+                for _ in range(check_interval_seconds):
+                    if not self._running:
+                        break
+                    time.sleep(1)
+
+        # Timeout or stopped
+        if not self._running:
+            status_update("Busca interrompida pelo usuário.")
+        else:
+            status_update(f"Tempo esgotado. Sessão não encontrada: {level} | {side_desc} | {target_date} | {hour_desc}")
+
+        self._running = False
+        return {
+            "success": False,
+            "error": "Sessão não encontrada no tempo limite",
+            "member_name": member.social_name,
+            "searched": {
+                "level": level,
+                "wave_side": wave_side,
+                "date": target_date,
+                "hour": target_hour
+            }
+        }
+
+    def get_session_options(self) -> Dict:
+        """
+        Get available session options with fixed hours.
+
+        Returns:
+            Dict with levels, wave_sides, and hours per level
+        """
+        return {
+            "levels": list(SESSION_FIXED_HOURS.keys()),
+            "wave_sides": ["Lado_esquerdo", "Lado_direito"],
+            "hours_by_level": SESSION_FIXED_HOURS.copy()
+        }
+
+    def check_session_availability(
+        self,
+        member_id: int,
+        level: str,
+        target_date: str,
+        wave_side: Optional[str] = None,
+        target_hour: Optional[str] = None
+    ) -> Dict:
+        """
+        Check availability for a specific session (single check, no monitoring).
+
+        Returns all available slots matching the criteria so the user can choose.
+
+        Args:
+            member_id: Member ID for the query
+            level: Session level (Iniciante1, Iniciante2, etc.)
+            target_date: Target date (YYYY-MM-DD format)
+            wave_side: Wave side (optional - checks both if not specified)
+            target_hour: Target hour (optional - checks all valid hours if not specified)
+
+        Returns:
+            Dict with available slots grouped by side and hour
+        """
+        self.require_initialized()
+
+        # Validate level
+        valid_hours = get_valid_hours_for_level(level)
+        if not valid_hours:
+            return {
+                "success": False,
+                "error": f"Nível inválido: {level}. Níveis válidos: {list(SESSION_FIXED_HOURS.keys())}"
+            }
+
+        # Validate hour if provided
+        if target_hour and target_hour not in valid_hours:
+            return {
+                "success": False,
+                "error": f"Horário {target_hour} inválido para {level}. Horários válidos: {valid_hours}"
+            }
+
+        # Validate wave_side if provided
+        valid_sides = ["Lado_esquerdo", "Lado_direito"]
+        if wave_side and wave_side not in valid_sides:
+            return {
+                "success": False,
+                "error": f"Lado inválido: {wave_side}. Lados válidos: {valid_sides}"
+            }
+
+        # Validate member
+        member = self._member_service.get_member_by_id(member_id)
+        if not member:
+            return {
+                "success": False,
+                "error": f"Membro {member_id} não encontrado"
+            }
+
+        # Determine which sides and hours to check
+        sides_to_check = [wave_side] if wave_side else valid_sides
+        hours_to_check = [target_hour] if target_hour else valid_hours
+
+        available_slots = []
+
+        for side in sides_to_check:
+            for hour in hours_to_check:
+                try:
+                    slot = self._availability_service.find_slot_for_combo(
+                        level=level,
+                        wave_side=side,
+                        member_id=member_id,
+                        target_dates=[target_date],
+                        target_hours=[hour]
+                    )
+
+                    if slot and slot.date == target_date and slot.interval == hour:
+                        available_slots.append({
+                            "level": level,
+                            "wave_side": side,
+                            "date": slot.date,
+                            "hour": slot.interval,
+                            "available": slot.available,
+                            "combo_key": slot.combo_key,
+                            "slot": slot.to_dict()
+                        })
+
+                except Exception as e:
+                    logger.warning(f"Error checking {level}/{side} at {hour}: {e}")
+
+        return {
+            "success": True,
+            "member_id": member_id,
+            "member_name": member.social_name,
+            "level": level,
+            "date": target_date,
+            "checked_sides": sides_to_check,
+            "checked_hours": hours_to_check,
+            "available_slots": available_slots,
+            "total_found": len(available_slots)
+        }
