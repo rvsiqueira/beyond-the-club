@@ -45,7 +45,9 @@ export function Sidebar() {
   return (
     <aside
       className={cn(
-        'fixed inset-y-0 left-0 z-50 flex flex-col bg-gray-900 transition-all duration-300',
+        'fixed inset-y-0 left-0 z-50 flex-col bg-gray-900 transition-all duration-300',
+        // Only show on desktop (lg and above)
+        'hidden lg:flex',
         sidebarOpen ? 'w-64' : 'w-20'
       )}
     >

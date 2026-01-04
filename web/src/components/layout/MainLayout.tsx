@@ -39,14 +39,19 @@ export function MainLayout({ children, title }: MainLayoutProps) {
   return (
     <div className="min-h-screen bg-gray-100">
       <Sidebar />
+      {/* Main content area */}
       <div
         className={cn(
           'transition-all duration-300',
-          sidebarOpen ? 'ml-64' : 'ml-20'
+          // Desktop: margin based on sidebar state
+          'lg:ml-64',
+          !sidebarOpen && 'lg:ml-20',
+          // Mobile: no margin (sidebar is overlay)
+          'ml-0'
         )}
       >
         <Header title={title} />
-        <main className="p-6">{children}</main>
+        <main className="p-4 lg:p-6">{children}</main>
       </div>
     </div>
   );
