@@ -4,6 +4,7 @@ FastAPI application entry point.
 Configures the API with all routes, middleware, and error handling.
 """
 
+import os
 import logging
 from contextlib import asynccontextmanager
 from typing import AsyncGenerator, Optional
@@ -30,7 +31,7 @@ logging.basicConfig(
 scheduler: Optional[AsyncIOScheduler] = None
 
 # Admin phone for scheduled tasks (will use this user's Beyond tokens)
-ADMIN_PHONE = "+5511972741849"
+ADMIN_PHONE = os.getenv("ADMIN_PHONE", "+5511972741849")
 
 
 async def refresh_availability_cache():
@@ -61,6 +62,9 @@ async def refresh_availability_cache():
             expires_at=user_token.expires_at
         )
         services.auth.initialize_with_tokens(tokens)
+
+        # Set current user for member service (required for member queries)
+        services.members.set_current_user(ADMIN_PHONE)
 
         # Scan availability
         services.availability.scan_availability()

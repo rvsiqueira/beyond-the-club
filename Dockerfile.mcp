@@ -15,7 +15,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 # Copy source code
 COPY src/ ./src/
-COPY mcp/ ./mcp/
+COPY mcp_btc/ ./mcp_btc/
 
 # Copy entrypoint script
 COPY docker-entrypoint.sh /docker-entrypoint.sh
@@ -36,12 +36,11 @@ ENV PYTHONUNBUFFERED=1
 ENV PYTHONDONTWRITEBYTECODE=1
 ENV PYTHONPATH=/app
 
-# MCP server runs on stdio, no port needed
-# But we expose a health check port
+# MCP server runs on SSE transport via HTTP
 EXPOSE 8001
 
 # Use entrypoint to ensure cache files exist
 ENTRYPOINT ["/docker-entrypoint.sh"]
 
-# Run the MCP server
-CMD ["python", "-m", "mcp.server"]
+# Run the MCP server with SSE transport
+CMD ["python", "-m", "mcp_btc.sse_server"]

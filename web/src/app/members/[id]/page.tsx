@@ -269,13 +269,10 @@ export default function MemberDetailPage() {
                         Titular
                       </span>
                     )}
-                    {member?.has_booking && (
-                      <span className="px-2.5 py-1 bg-green-500/40 backdrop-blur-sm rounded-full text-xs font-semibold text-white">
-                        Agendado
-                      </span>
-                    )}
-                    <span className="px-2.5 py-1 bg-white/20 backdrop-blur-sm rounded-full text-xs font-semibold text-white">
-                      {member?.usage}/{member?.limit} usos
+                    <span className={`px-2.5 py-1 backdrop-blur-sm rounded-full text-xs font-semibold text-white ${
+                      member?.has_booking ? 'bg-green-500/40' : 'bg-white/20'
+                    }`}>
+                      {member?.has_booking ? 'Agendado' : 'Disponível'}
                     </span>
                   </div>
                 </div>

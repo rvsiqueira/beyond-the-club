@@ -13,6 +13,7 @@ __all__ = [
     "JWTHandler",
     "TokenPayload",
     "PasswordHandler",
+    "normalize_phone",
     "UserStore",
     "User",
     "normalize_phone",

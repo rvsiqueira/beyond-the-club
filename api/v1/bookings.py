@@ -421,8 +421,7 @@ async def swap_booking(
         elif "Lado_" in tag:
             wave_side = tag
 
-    # We need package_id and product_id - get from availability
-    # For now, scan to find the matching slot
+    # Extract slot info from booking
     date = invitation.get("date", "").split("T")[0]
 
     # Extract interval from begin field
@@ -431,21 +430,27 @@ async def swap_booking(
     if not interval:
         interval = invitation.get("interval", "")
 
-    if not services.availability.is_cache_valid():
-        services.availability.scan_availability()
+    # Get package_id and product_id from fixed mappings
+    from src.packages import get_package_ids
+    pkg_info = get_package_ids(level, wave_side, sport)
 
-    slots = services.availability.get_slots_from_cache()
-    matching_slot = None
-    for s in slots:
-        if s.date == date and s.interval == interval and s.level == level and s.wave_side == wave_side:
-            matching_slot = s
-            break
-
-    if not matching_slot:
+    if not pkg_info:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Could not find matching slot for swap"
+            detail=f"Unknown level/wave_side combination: {level}/{wave_side}"
         )
+
+    # Create slot from booking info and fixed package mappings
+    matching_slot = AvailableSlot(
+        date=date,
+        interval=interval,
+        level=level,
+        wave_side=wave_side,
+        available=1,  # Dummy value - we're swapping, not checking availability
+        max_quantity=20,
+        package_id=pkg_info.package_id,
+        product_id=pkg_info.product_id
+    )
 
     try:
         result = services.bookings.swap_booking(

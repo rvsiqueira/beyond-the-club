@@ -21,8 +21,8 @@ DATA_CACHE_FILES=(
     "/app/data/.beyondtheclub_user_tokens.json"
 )
 
-# Ensure data directory exists
-mkdir -p /app/data
+# Ensure data directories exist
+mkdir -p /app/data /app/data/members_cache
 
 # Create root cache files with empty JSON object if they don't exist
 for file in "${CACHE_FILES[@]}"; do

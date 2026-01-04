@@ -108,10 +108,14 @@ export default function MembersPage() {
                       </div>
                     </div>
 
-                    {/* Usage Badge */}
-                    <span className="px-2.5 py-1 rounded-full text-xs font-bold bg-white/95 text-gray-800 flex items-center gap-1">
+                    {/* Status Badge */}
+                    <span className={`px-2.5 py-1 rounded-full text-xs font-bold flex items-center gap-1 ${
+                      member.has_booking
+                        ? 'bg-green-500/90 text-white'
+                        : 'bg-white/95 text-gray-800'
+                    }`}>
                       <Ticket className="h-3 w-3" />
-                      {member.usage}/{member.limit}
+                      {member.has_booking ? 'Agendado' : 'Disponível'}
                     </span>
                   </div>
 

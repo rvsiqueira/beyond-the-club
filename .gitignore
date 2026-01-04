@@ -58,7 +58,17 @@ env/
 
 # Logs
 *.log
+nginx/logs/
+
+# SSL Certificates (DO NOT commit to repo!)
+nginx/ssl/*.pem
+nginx/ssl/*.key
+nginx/ssl/*.crt
+nginx/ssl/*.csr
 
 # OS
 .DS_Store
 Thumbs.db
+
+# Nginx
+/nginx/ssl

@@ -52,6 +52,7 @@ class MembersListResponse(BaseModel):
     members: List[MemberResponse]
     sport: str
     total: int
+    from_cache: bool = False  # True if data came from cache (may be stale)
 
 
 # Endpoints
@@ -67,25 +68,44 @@ async def list_members(
     List all members for the authenticated user.
 
     Returns members with their usage status and booking info.
+
+    Flow:
+    - If cache exists and refresh=False: returns cache immediately (from_cache=True)
+    - If refresh=True or no cache: fetches from Beyond API (from_cache=False)
+
+    Frontend should call with refresh=False first for fast load,
+    then call with refresh=True to update data.
     """
-    # Set sport context
+    # Set sport context and current user for caching
     services.context.set_sport(sport)
+    services.members.set_current_user(current_user.phone)
 
-    # Initialize Beyond API using user's tokens (no auto-SMS)
-    ensure_beyond_api(services, current_user)
+    # Check if we have cached members
+    cached_members = services.members.get_members(force_refresh=False)
+    has_cache = len(cached_members) > 0
 
-    # Get members
-    members = services.members.get_members(force_refresh=refresh)
+    # If we have cache and don't want refresh, return cache immediately
+    if has_cache and not refresh:
+        members = cached_members
+        from_cache = True
+    else:
+        # Need to fetch from API - initialize Beyond API
+        ensure_beyond_api(services, current_user)
+        members = services.members.get_members(force_refresh=True)
+        from_cache = False
 
-    # Get active bookings to check status
+    # Always initialize Beyond API and get active bookings for accurate has_booking status
+    # This ensures members show correct booking status even when using cached member data
+    booked_member_ids = set()
     try:
+        ensure_beyond_api(services, current_user)
         active_bookings = services.bookings.get_active_bookings()
         booked_member_ids = {
             b.get("member", {}).get("memberId")
             for b in active_bookings
         }
     except Exception:
-        booked_member_ids = set()
+        pass
 
     result = []
     for m in members:
@@ -103,18 +123,20 @@ async def list_members(
             has_preferences=has_prefs
         ))
 
-        # Sync to graph
-        services.graph.sync_member(
-            member_id=m.member_id,
-            name=m.name,
-            social_name=m.social_name,
-            is_titular=m.is_titular
-        )
+        # Sync to graph (only on fresh data)
+        if not from_cache:
+            services.graph.sync_member(
+                member_id=m.member_id,
+                name=m.name,
+                social_name=m.social_name,
+                is_titular=m.is_titular
+            )
 
     return MembersListResponse(
         members=result,
         sport=sport,
-        total=len(result)
+        total=len(result),
+        from_cache=from_cache
     )
 
 

@@ -6,15 +6,20 @@ Handles scanning available slots and managing the availability cache.
 
 import json
 import logging
+import os
 from pathlib import Path
 from typing import Optional, List, Dict, Any
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from dataclasses import dataclass
 
 from .base import BaseService, ServiceContext
 from ..packages import get_package_info
 
 logger = logging.getLogger(__name__)
+
+# Minimum minutes before session start to consider it bookable
+# Sessions starting within this time window are ignored
+SESSION_START_BUFFER_MINUTES = int(os.getenv("SESSION_START_BUFFER_MINUTES", "20"))
 
 AVAILABILITY_CACHE_FILE = Path(__file__).parent.parent.parent / ".beyondtheclub_availability.json"
 
@@ -374,6 +379,21 @@ class AvailabilityService(BaseService):
 
                                 available_qty = solo.get("availableQuantity", 0)
                                 if available_qty > 0:
+                                    # Check if session has already started or will start too soon
+                                    # System operates in BRT timezone (UTC-3)
+                                    try:
+                                        session_datetime = datetime.strptime(f"{date} {interval}", "%Y-%m-%d %H:%M")
+                                        now_brt = datetime.now()  # Server runs in BRT
+                                        min_start_time = now_brt + timedelta(minutes=SESSION_START_BUFFER_MINUTES)
+                                        if session_datetime < min_start_time:
+                                            logger.debug(
+                                                f"Skipping slot {date} {interval} - session starts too soon "
+                                                f"(session: {session_datetime}, min: {min_start_time})"
+                                            )
+                                            continue
+                                    except ValueError as e:
+                                        logger.warning(f"Could not parse session datetime {date} {interval}: {e}")
+
                                     return AvailableSlot(
                                         date=date,
                                         interval=interval,
@@ -492,7 +512,9 @@ class AvailabilityService(BaseService):
         Returns:
             Filtered list of slots
         """
-        today = datetime.now().strftime("%Y-%m-%d")
+        now_brt = datetime.now()  # Server runs in BRT
+        today = now_brt.strftime("%Y-%m-%d")
+        min_start_time = now_brt + timedelta(minutes=SESSION_START_BUFFER_MINUTES)
         result = []
 
         for slot in slots:
@@ -515,6 +537,17 @@ class AvailabilityService(BaseService):
             # Filter by availability
             if slot.available < min_available:
                 continue
+
+            # Filter sessions that have already started or will start too soon
+            try:
+                session_datetime = datetime.strptime(f"{slot.date} {slot.interval}", "%Y-%m-%d %H:%M")
+                if session_datetime < min_start_time:
+                    logger.debug(
+                        f"Filtering out slot {slot.date} {slot.interval} - session starts too soon"
+                    )
+                    continue
+            except ValueError:
+                pass  # If we can't parse, include the slot
 
             result.append(slot)
 
