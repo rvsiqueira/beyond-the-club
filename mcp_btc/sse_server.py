@@ -3,24 +3,61 @@ MCP Server implementation.
 
 Exposes tools and resources for Claude to interact with
 the Beyond The Club booking system.
+
+Uses SSE (Server-Sent Events) transport for remote access
+by voice agents and other HTTP clients.
+
+Authentication:
+- Voice Agent authenticates with API Key (X-API-Key header)
+- Session is created for caller_id (phone number)
+- Session token is used for SSE connection (Authorization: Bearer)
 """
 
 import logging
-from typing import Any
+import os
+import json
+from typing import Any, Optional
+
+import uvicorn
+from starlette.applications import Starlette
+from starlette.routing import Route, Mount
+from starlette.requests import Request
+from starlette.responses import Response, JSONResponse
+from starlette.middleware import Middleware
+from starlette.middleware.base import BaseHTTPMiddleware
 
 from mcp.server import Server
-from mcp.server.stdio import stdio_server
+from mcp.server.sse import SseServerTransport
 from mcp.types import (
     Tool,
     TextContent,
     Resource,
-    ResourceTemplate,
 )
 
-from .tools import booking, availability, members, monitor, auth
+from .tools import booking, availability, members, monitor, auth as auth_tools
 from .resources import context
+from .auth import (
+    get_session_manager,
+    authenticate_request,
+    validate_session_token,
+    Session,
+)
 
 logger = logging.getLogger(__name__)
+
+# Current session context (set per-request)
+_current_session: Optional[Session] = None
+
+
+def get_current_session() -> Optional[Session]:
+    """Get the current session for this request."""
+    return _current_session
+
+
+def set_current_session(session: Optional[Session]):
+    """Set the current session for this request."""
+    global _current_session
+    _current_session = session
 
 # Create server instance
 server = Server("beyond-the-club")
@@ -369,129 +406,6 @@ async def list_tools() -> list[Tool]:
                 "properties": {}
             }
         ),
-        Tool(
-            name="get_session_options",
-            description="Get available session options with fixed hours per level. Shows valid levels, wave sides, and which hours are available for each level.",
-            inputSchema={
-                "type": "object",
-                "properties": {}
-            }
-        ),
-        Tool(
-            name="search_session",
-            description="MONITOR and book a specific session over time. Use this when the user wants to keep checking until a slot becomes available. For immediate availability check, use check_session_availability instead.",
-            inputSchema={
-                "type": "object",
-                "properties": {
-                    "member_name": {
-                        "type": "string",
-                        "description": "Member's name to book for"
-                    },
-                    "level": {
-                        "type": "string",
-                        "description": "Session level: Iniciante1 (13:00/15:00), Iniciante2 (09:00/17:00), Intermediario1 (10:00/16:00), Intermediario2 (08:00/12:00/18:00), Avançado1 (11:00/14:00), Avançado2 (07:00/19:00)"
-                    },
-                    "target_date": {
-                        "type": "string",
-                        "description": "Target date (YYYY-MM-DD format)"
-                    },
-                    "target_hour": {
-                        "type": "string",
-                        "description": "Target hour (HH:MM format). Must be valid for the selected level."
-                    },
-                    "wave_side": {
-                        "type": "string",
-                        "description": "Wave side: 'Lado_esquerdo' or 'Lado_direito' (optional - searches both if not specified)"
-                    },
-                    "auto_book": {
-                        "type": "boolean",
-                        "description": "Auto-book when slot found (default: true)",
-                        "default": True
-                    },
-                    "duration_minutes": {
-                        "type": "integer",
-                        "description": "How long to search (default: 120 minutes)",
-                        "default": 120
-                    },
-                    "sport": {
-                        "type": "string",
-                        "description": "Sport type: 'surf' or 'tennis'",
-                        "default": "surf"
-                    }
-                },
-                "required": ["member_name", "level", "target_date", "target_hour"]
-            }
-        ),
-        Tool(
-            name="check_session_availability",
-            description="Check what sessions are available RIGHT NOW for a level/date. Returns all available slots so the user can choose. Use this first, then book_specific_slot to book, or search_session to monitor.",
-            inputSchema={
-                "type": "object",
-                "properties": {
-                    "member_name": {
-                        "type": "string",
-                        "description": "Member's name to check for"
-                    },
-                    "level": {
-                        "type": "string",
-                        "description": "Session level (Iniciante1, Iniciante2, Intermediario1, Intermediario2, Avançado1, Avançado2)"
-                    },
-                    "target_date": {
-                        "type": "string",
-                        "description": "Target date (YYYY-MM-DD format)"
-                    },
-                    "wave_side": {
-                        "type": "string",
-                        "description": "Wave side (optional - checks both if not specified)"
-                    },
-                    "target_hour": {
-                        "type": "string",
-                        "description": "Target hour (optional - checks all valid hours if not specified)"
-                    },
-                    "sport": {
-                        "type": "string",
-                        "description": "Sport type",
-                        "default": "surf"
-                    }
-                },
-                "required": ["member_name", "level", "target_date"]
-            }
-        ),
-        Tool(
-            name="book_specific_slot",
-            description="Book a specific slot IMMEDIATELY. Use after check_session_availability when user has chosen a slot. Requires all parameters (no monitoring).",
-            inputSchema={
-                "type": "object",
-                "properties": {
-                    "member_name": {
-                        "type": "string",
-                        "description": "Member's name to book for"
-                    },
-                    "level": {
-                        "type": "string",
-                        "description": "Session level"
-                    },
-                    "wave_side": {
-                        "type": "string",
-                        "description": "Wave side: 'Lado_esquerdo' or 'Lado_direito'"
-                    },
-                    "target_date": {
-                        "type": "string",
-                        "description": "Date (YYYY-MM-DD)"
-                    },
-                    "target_hour": {
-                        "type": "string",
-                        "description": "Hour (HH:MM)"
-                    },
-                    "sport": {
-                        "type": "string",
-                        "description": "Sport type",
-                        "default": "surf"
-                    }
-                },
-                "required": ["member_name", "level", "wave_side", "target_date", "target_hour"]
-            }
-        ),
     ])
 
     return tools
@@ -535,14 +449,6 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> list[TextContent]:
             result = await monitor.start_auto_monitor(**arguments)
         elif name == "check_monitor_status":
             result = await monitor.check_monitor_status()
-        elif name == "get_session_options":
-            result = await monitor.get_session_options()
-        elif name == "search_session":
-            result = await monitor.search_session(**arguments)
-        elif name == "check_session_availability":
-            result = await monitor.check_session_availability(**arguments)
-        elif name == "book_specific_slot":
-            result = await monitor.book_specific_slot(**arguments)
         else:
             result = f"Unknown tool: {name}"
 
@@ -611,18 +517,281 @@ async def read_resource(uri: str) -> str:
 
 # === Server Entry Point ===
 
-async def main():
-    """Run the MCP server."""
+# SSE transport for remote HTTP access
+sse = SseServerTransport("/messages/")
+
+
+# === Authentication Endpoints ===
+
+async def handle_create_session(request: Request) -> Response:
+    """
+    Create a new session for a Voice Agent caller.
+
+    POST /auth/session
+    Headers:
+        X-API-Key: <app_api_key>
+    Body:
+        { "caller_id": "+5511999999999" }
+
+    Returns:
+        {
+            "session_token": "sess_xxx...",
+            "expires_in": 600,
+            "user": {
+                "phone": "+5511999999999",
+                "name": "Rafael",
+                "has_beyond_token": true,
+                "member_ids": [12869]
+            }
+        }
+    """
+    # Get API key from header
+    api_key = request.headers.get("X-API-Key")
+
+    # Parse body
+    try:
+        body = await request.json()
+        caller_id = body.get("caller_id")
+    except Exception:
+        return JSONResponse(
+            {"error": "Invalid JSON body"},
+            status_code=400
+        )
+
+    if not caller_id:
+        return JSONResponse(
+            {"error": "caller_id is required"},
+            status_code=400
+        )
+
+    # Authenticate and create session
+    success, message, session = await authenticate_request(api_key, caller_id)
+
+    if not success:
+        return JSONResponse(
+            {"error": message},
+            status_code=401
+        )
+
+    # Return session info
+    return JSONResponse({
+        "session_token": session.token,
+        "expires_in": int(session.expires_at - session.created_at),
+        "user": {
+            "phone": session.caller_id,
+            "name": session.user_name,
+            "has_beyond_token": session.has_beyond_token,
+            "member_ids": session.member_ids
+        }
+    })
+
+
+async def handle_validate_session(request: Request) -> Response:
+    """
+    Validate a session token.
+
+    GET /auth/validate
+    Headers:
+        Authorization: Bearer <session_token>
+
+    Returns:
+        { "valid": true, "user": {...} } or { "valid": false }
+    """
+    auth_header = request.headers.get("Authorization", "")
+
+    if not auth_header.startswith("Bearer "):
+        return JSONResponse({"valid": False, "error": "Missing Bearer token"})
+
+    token = auth_header[7:]  # Remove "Bearer " prefix
+    session = validate_session_token(token)
+
+    if not session:
+        return JSONResponse({"valid": False, "error": "Invalid or expired session"})
+
+    return JSONResponse({
+        "valid": True,
+        "user": {
+            "phone": session.caller_id,
+            "name": session.user_name,
+            "has_beyond_token": session.has_beyond_token,
+            "member_ids": session.member_ids
+        },
+        "expires_at": session.expires_at
+    })
+
+
+async def handle_end_session(request: Request) -> Response:
+    """
+    End/invalidate a session.
+
+    POST /auth/logout
+    Headers:
+        Authorization: Bearer <session_token>
+    """
+    auth_header = request.headers.get("Authorization", "")
+
+    if not auth_header.startswith("Bearer "):
+        return JSONResponse({"error": "Missing Bearer token"}, status_code=401)
+
+    token = auth_header[7:]
+    manager = get_session_manager()
+    invalidated = manager.invalidate_session(token)
+
+    return JSONResponse({"success": invalidated})
+
+
+# === Health Check ===
+
+async def handle_health(request: Request) -> Response:
+    """Health check endpoint."""
+    manager = get_session_manager()
+    return JSONResponse({
+        "status": "healthy",
+        "service": "mcp-server",
+        "active_sessions": manager.get_active_sessions_count()
+    })
+
+
+# === SSE with Authentication ===
+
+async def handle_sse(request: Request) -> Response:
+    """
+    Handle SSE connection from clients.
+
+    GET /sse
+    Headers:
+        Authorization: Bearer <session_token>  (optional in dev mode)
+    """
+    # Check for session token
+    auth_header = request.headers.get("Authorization", "")
+    session = None
+
+    if auth_header.startswith("Bearer "):
+        token = auth_header[7:]
+        session = validate_session_token(token)
+
+        if not session:
+            return JSONResponse(
+                {"error": "Invalid or expired session token"},
+                status_code=401
+            )
+
+        logger.info(f"SSE connection from {session.caller_id} ({request.client})")
+        set_current_session(session)
+    else:
+        # Check if API key is configured (production mode)
+        manager = get_session_manager()
+        if manager._api_key:
+            return JSONResponse(
+                {"error": "Authorization required. Use POST /auth/session first."},
+                status_code=401
+            )
+
+        # Dev mode - allow without auth
+        logger.warning(f"SSE connection without auth from {request.client} (dev mode)")
+
+    try:
+        async with sse.connect_sse(
+            request.scope, request.receive, request._send
+        ) as streams:
+            await server.run(
+                streams[0], streams[1],
+                server.create_initialization_options()
+            )
+    finally:
+        set_current_session(None)
+
+    return Response()
+
+
+# === Messages Endpoint with Auth Check ===
+
+class AuthMiddleware(BaseHTTPMiddleware):
+    """Middleware to check authentication for /messages/ endpoint."""
+
+    async def dispatch(self, request: Request, call_next):
+        # Skip auth for non-messages routes
+        if not request.url.path.startswith("/messages/"):
+            return await call_next(request)
+
+        # Check for session token
+        auth_header = request.headers.get("Authorization", "")
+
+        if auth_header.startswith("Bearer "):
+            token = auth_header[7:]
+            session = validate_session_token(token)
+
+            if not session:
+                return JSONResponse(
+                    {"error": "Invalid or expired session token"},
+                    status_code=401
+                )
+
+            set_current_session(session)
+        else:
+            # Check if API key is configured (production mode)
+            manager = get_session_manager()
+            if manager._api_key:
+                return JSONResponse(
+                    {"error": "Authorization required"},
+                    status_code=401
+                )
+
+        try:
+            response = await call_next(request)
+        finally:
+            set_current_session(None)
+
+        return response
+
+
+# Starlette app with routes and middleware
+app = Starlette(
+    debug=False,
+    routes=[
+        # Auth endpoints
+        Route("/auth/session", endpoint=handle_create_session, methods=["POST"]),
+        Route("/auth/validate", endpoint=handle_validate_session, methods=["GET"]),
+        Route("/auth/logout", endpoint=handle_end_session, methods=["POST"]),
+
+        # Health check
+        Route("/health", endpoint=handle_health, methods=["GET"]),
+
+        # MCP SSE endpoints
+        Route("/sse", endpoint=handle_sse),
+        Mount("/messages/", app=sse.handle_post_message),
+    ],
+    middleware=[
+        Middleware(AuthMiddleware),
+    ]
+)
+
+
+def main():
+    """Run the MCP server with SSE transport."""
     logging.basicConfig(
         level=logging.INFO,
         format="%(asctime)s | %(levelname)-8s | %(name)s | %(message)s"
     )
-    logger.info("Starting Beyond The Club MCP Server...")
 
-    async with stdio_server() as (read_stream, write_stream):
-        await server.run(read_stream, write_stream, server.create_initialization_options())
+    host = os.getenv("MCP_HOST", "0.0.0.0")
+    port = int(os.getenv("MCP_PORT", "8001"))
+
+    logger.info(f"Starting Beyond The Club MCP Server (SSE) on {host}:{port}...")
+    logger.info("Auth endpoint: POST /auth/session")
+    logger.info("SSE endpoint: GET /sse")
+    logger.info("Messages endpoint: POST /messages/")
+    logger.info("Health endpoint: GET /health")
+
+    # Check if API key is configured
+    manager = get_session_manager()
+    if manager._api_key:
+        logger.info("API Key authentication: ENABLED")
+    else:
+        logger.warning("API Key authentication: DISABLED (dev mode)")
+
+    uvicorn.run(app, host=host, port=port)
 
 
 if __name__ == "__main__":
-    import asyncio
-    asyncio.run(main())
+    main()

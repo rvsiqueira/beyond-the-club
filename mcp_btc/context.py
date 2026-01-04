@@ -18,6 +18,7 @@ from src.services import (
     MonitorService,
     GraphService,
 )
+from src.services.beyond_token_service import BeyondTokenService
 
 logger = logging.getLogger(__name__)
 
@@ -33,6 +34,7 @@ class MCPServices:
     bookings: BookingService
     monitor: MonitorService
     graph: GraphService
+    beyond_tokens: BeyondTokenService
 
 
 # Global services instance
@@ -60,6 +62,7 @@ def get_services() -> MCPServices:
         bookings = BookingService(context, members, availability)
         monitor = MonitorService(context, members, availability, bookings)
         graph = GraphService()
+        beyond_tokens = BeyondTokenService(context)
 
         _services = MCPServices(
             config=config,
@@ -69,7 +72,8 @@ def get_services() -> MCPServices:
             availability=availability,
             bookings=bookings,
             monitor=monitor,
-            graph=graph
+            graph=graph,
+            beyond_tokens=beyond_tokens
         )
 
         logger.info("MCP services initialized")
