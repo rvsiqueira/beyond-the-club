@@ -30,7 +30,7 @@ class StartMonitorRequest(BaseModel):
     member_ids: List[int] = Field(..., description="Member IDs to monitor")
     target_dates: Optional[List[str]] = Field(None, description="Target dates (YYYY-MM-DD)")
     duration_minutes: int = Field(120, description="Duration in minutes")
-    check_interval_seconds: int = Field(30, description="Check interval in seconds")
+    check_interval_seconds: int = Field(12, description="Check interval in seconds")
 
 
 class SessionSearchRequest(BaseModel):
@@ -42,7 +42,7 @@ class SessionSearchRequest(BaseModel):
     wave_side: Optional[str] = Field(None, description="Wave side (Lado_esquerdo or Lado_direito) - optional, searches both if not specified")
     auto_book: bool = Field(True, description="Auto-book when slot found")
     duration_minutes: int = Field(120, description="Duration in minutes")
-    check_interval_seconds: int = Field(30, description="Check interval in seconds")
+    check_interval_seconds: int = Field(12, description="Check interval in seconds")
 
 
 class MonitorStatusResponse(BaseModel):
@@ -197,6 +197,173 @@ async def list_monitors(
     return {
         "monitors": user_monitors,
         "total": len(user_monitors)
+    }
+
+
+@router.get("/user/active")
+async def get_user_active_monitors(
+    services: ServicesDep,
+    current_user: CurrentUser
+):
+    """
+    Get all active monitors for the current user with full details.
+
+    Returns monitors with complete info for UI display.
+    """
+    import time as time_module
+
+    result = []
+    monitors_to_update = []
+
+    for monitor_id, m in active_monitors.items():
+        if m.get("user_phone") != current_user.phone:
+            continue
+
+        # Check if thread is still alive (for background monitors)
+        thread = m.get("_thread")
+        if thread and not thread.is_alive():
+            # Thread finished while disconnected - update status
+            if m.get("status") == "running":
+                m["status"] = "completed"
+
+        # Only return active or recently completed monitors
+        if m.get("status") not in ["pending", "running", "completed", "error", "stopping"]:
+            continue
+
+        # Calculate elapsed time for running monitors
+        if m.get("status") == "running" and m.get("started_at"):
+            m["elapsed_seconds"] = int(time_module.time() - m["started_at"])
+
+        monitor_info = {
+            "monitor_id": monitor_id,
+            "type": m.get("type", "auto_monitor"),
+            "status": m.get("status", "unknown"),
+            "member_id": m.get("member_id"),
+            "member_name": m.get("member_name"),
+            "level": m.get("level"),
+            "wave_side": m.get("wave_side"),
+            "target_date": m.get("target_date"),
+            "target_hour": m.get("target_hour"),
+            "duration_minutes": m.get("duration_minutes", 120),
+            "elapsed_seconds": m.get("elapsed_seconds", 0),
+            "started_at": m.get("started_at"),
+            "messages": m.get("messages", [])[-50:],  # Last 50 messages
+            "result": m.get("result")
+        }
+
+        result.append(monitor_info)
+
+    return {"monitors": result}
+
+
+class UpdateMonitorRequest(BaseModel):
+    """Update monitor request."""
+    level: Optional[str] = Field(None, description="New level")
+    wave_side: Optional[str] = Field(None, description="New wave side")
+    target_hour: Optional[str] = Field(None, description="New target hour")
+    duration_minutes: Optional[int] = Field(None, description="New duration in minutes")
+
+
+@router.put("/{monitor_id}/update")
+async def update_monitor(
+    monitor_id: str,
+    request: UpdateMonitorRequest,
+    services: ServicesDep,
+    current_user: CurrentUser
+):
+    """
+    Update a running monitor's configuration.
+
+    If level changes, the monitor will be restarted with new parameters.
+    """
+    if monitor_id not in active_monitors:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Monitor {monitor_id} not found"
+        )
+
+    monitor = active_monitors[monitor_id]
+
+    # Verify ownership
+    if monitor.get("user_phone") != current_user.phone:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Not authorized to update this monitor"
+        )
+
+    # Check if monitor is still running
+    if monitor.get("status") not in ["pending", "running"]:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Cannot update monitor with status: {monitor.get('status')}"
+        )
+
+    needs_restart = False
+    updated_fields = []
+
+    # Update fields
+    if request.level is not None and request.level != monitor.get("level"):
+        # Validate level
+        if request.level not in SESSION_FIXED_HOURS:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Invalid level: {request.level}"
+            )
+        monitor["level"] = request.level
+        needs_restart = True
+        updated_fields.append("level")
+
+    if request.wave_side is not None and request.wave_side != monitor.get("wave_side"):
+        valid_sides = ["Lado_esquerdo", "Lado_direito"]
+        if request.wave_side not in valid_sides:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Invalid wave_side: {request.wave_side}"
+            )
+        monitor["wave_side"] = request.wave_side
+        updated_fields.append("wave_side")
+
+    if request.target_hour is not None and request.target_hour != monitor.get("target_hour"):
+        level = request.level or monitor.get("level")
+        if level:
+            valid_hours = SESSION_FIXED_HOURS.get(level, [])
+            if request.target_hour not in valid_hours:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=f"Invalid hour {request.target_hour} for level {level}"
+                )
+        monitor["target_hour"] = request.target_hour
+        updated_fields.append("target_hour")
+
+    if request.duration_minutes is not None and request.duration_minutes != monitor.get("duration_minutes"):
+        if request.duration_minutes not in [60, 120, 180, 240, 300, 360]:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Duration must be one of: 60, 120, 180, 240, 300, 360"
+            )
+        monitor["duration_minutes"] = request.duration_minutes
+        updated_fields.append("duration_minutes")
+
+    if needs_restart:
+        # Stop current monitor and it will need to be restarted
+        services.monitor.stop()
+        monitor["status"] = "pending"
+        monitor["messages"].append({
+            "message": f"Monitor atualizado. Campos: {', '.join(updated_fields)}. Reconecte para reiniciar.",
+            "level": "info"
+        })
+    else:
+        monitor["messages"].append({
+            "message": f"Monitor atualizado. Campos: {', '.join(updated_fields)}",
+            "level": "info"
+        })
+
+    return {
+        "success": True,
+        "monitor_id": monitor_id,
+        "message": f"Monitor atualizado: {', '.join(updated_fields)}",
+        "restarted": needs_restart,
+        "updated_fields": updated_fields
     }
 
 
@@ -390,15 +557,15 @@ async def monitor_websocket(websocket: WebSocket, monitor_id: str):
 
     try:
         # Start the monitor
+        import time
+        start_time = time.time()
         monitor["status"] = "running"
+        monitor["started_at"] = start_time
         await websocket.send_json({
             "type": "started",
             "monitor_id": monitor_id,
             "member_ids": monitor["member_ids"]
         })
-
-        import time
-        start_time = time.time()
 
         # Run monitor in a thread to not block
         import threading
@@ -491,9 +658,14 @@ async def monitor_websocket(websocket: WebSocket, monitor_id: str):
             })
 
     except WebSocketDisconnect:
-        logger.info(f"WebSocket disconnected for monitor {monitor_id}")
-        services.monitor.stop()
-        monitor["status"] = "disconnected"
+        # DO NOT stop the monitor when WebSocket disconnects
+        # Monitor continues running in background
+        logger.info(f"WebSocket disconnected for monitor {monitor_id} - monitor continues in background")
+        # Keep the thread reference so we can check if it's still alive later
+        if thread.is_alive():
+            monitor["status"] = "running"
+            monitor["_thread"] = thread
+        return  # Don't close websocket, just return
     except Exception as e:
         logger.error(f"Monitor error: {e}")
         monitor["status"] = "error"
@@ -505,7 +677,10 @@ async def monitor_websocket(websocket: WebSocket, monitor_id: str):
         except Exception:
             pass
     finally:
-        await websocket.close()
+        try:
+            await websocket.close()
+        except Exception:
+            pass
 
 
 @router.websocket("/ws/{monitor_id}/session")
@@ -576,7 +751,10 @@ async def session_search_websocket(websocket: WebSocket, monitor_id: str):
 
     try:
         # Start the session search
+        import time
+        start_time = time.time()
         monitor["status"] = "running"
+        monitor["started_at"] = start_time
         await websocket.send_json({
             "type": "started",
             "monitor_id": monitor_id,
@@ -589,9 +767,6 @@ async def session_search_websocket(websocket: WebSocket, monitor_id: str):
                 "hour": monitor["target_hour"]
             }
         })
-
-        import time
-        start_time = time.time()
 
         # Run session search in a thread to not block
         import threading
@@ -688,9 +863,14 @@ async def session_search_websocket(websocket: WebSocket, monitor_id: str):
             })
 
     except WebSocketDisconnect:
-        logger.info(f"WebSocket disconnected for session search {monitor_id}")
-        services.monitor.stop()
-        monitor["status"] = "disconnected"
+        # DO NOT stop the monitor when WebSocket disconnects
+        # Monitor continues running in background
+        logger.info(f"WebSocket disconnected for session search {monitor_id} - monitor continues in background")
+        # Keep the thread reference so we can check if it's still alive later
+        if thread.is_alive():
+            monitor["status"] = "running"
+            monitor["_thread"] = thread
+        return  # Don't close websocket, just return
     except Exception as e:
         logger.error(f"Session search error: {e}")
         monitor["status"] = "error"
@@ -702,4 +882,7 @@ async def session_search_websocket(websocket: WebSocket, monitor_id: str):
         except Exception:
             pass
     finally:
-        await websocket.close()
+        try:
+            await websocket.close()
+        except Exception:
+            pass

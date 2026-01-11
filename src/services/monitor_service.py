@@ -6,6 +6,7 @@ Handles automatic monitoring and booking for members.
 
 import time
 import logging
+from datetime import datetime, timedelta
 from typing import Optional, List, Dict, Callable
 
 from .base import BaseService, ServiceContext
@@ -55,7 +56,7 @@ class MonitorService(BaseService):
         member_ids: List[int],
         target_dates: Optional[List[str]] = None,
         duration_minutes: int = 120,
-        check_interval_seconds: int = 30,
+        check_interval_seconds: int = 12,
         on_status_update: Optional[Callable[[str, str], None]] = None
     ) -> Dict[int, dict]:
         """
@@ -305,7 +306,7 @@ class MonitorService(BaseService):
         wave_side: Optional[str] = None,
         auto_book: bool = True,
         duration_minutes: int = 120,
-        check_interval_seconds: int = 30,
+        check_interval_seconds: int = 12,
         on_status_update: Optional[Callable[[str, str], None]] = None
     ) -> Dict:
         """
@@ -393,6 +394,31 @@ class MonitorService(BaseService):
             check_count += 1
             elapsed = int(time.time() - start_time)
             remaining = int((end_time - time.time()) / 60)
+
+            # Check if we're past 20min after session start (only for today's sessions with specific hour)
+            if target_hour:
+                now = datetime.now()
+                today_str = now.strftime("%Y-%m-%d")
+                if target_date == today_str:
+                    # Parse target hour and add 20 minutes
+                    session_hour, session_min = map(int, target_hour.split(":"))
+                    session_start = now.replace(hour=session_hour, minute=session_min, second=0, microsecond=0)
+                    session_cutoff = session_start + timedelta(minutes=20)
+
+                    if now > session_cutoff:
+                        status_update(f"Sessão {target_hour} já começou há mais de 20 minutos. Encerrando busca.", "warning")
+                        self._running = False
+                        return {
+                            "success": False,
+                            "error": f"Sessão {target_hour} já começou há mais de 20 minutos",
+                            "member_name": member.social_name,
+                            "searched": {
+                                "level": level,
+                                "wave_side": wave_side,
+                                "date": target_date,
+                                "hour": target_hour
+                            }
+                        }
 
             status_update(f"\n=== Check #{check_count} | {elapsed}s decorridos | {remaining} min restantes ===")
 
