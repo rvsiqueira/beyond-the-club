@@ -3,9 +3,24 @@
 import os
 from dataclasses import dataclass, field
 from typing import List, Dict, Any
+from datetime import datetime, timezone, timedelta
 from dotenv import load_dotenv
 
 load_dotenv()
+
+# São Paulo timezone (BRT = UTC-3)
+SAO_PAULO_OFFSET = timedelta(hours=-3)
+
+
+def get_sao_paulo_now() -> datetime:
+    """Get current datetime in São Paulo timezone (BRT = UTC-3)."""
+    utc_now = datetime.now(timezone.utc)
+    return utc_now + SAO_PAULO_OFFSET
+
+
+def get_sao_paulo_today() -> str:
+    """Get today's date in São Paulo timezone as YYYY-MM-DD string."""
+    return get_sao_paulo_now().strftime("%Y-%m-%d")
 
 
 # Fixed session hours by level

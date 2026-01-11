@@ -14,6 +14,7 @@ from dataclasses import dataclass
 
 from .base import BaseService, ServiceContext
 from ..packages import get_package_info
+from ..config import get_sao_paulo_now
 
 logger = logging.getLogger(__name__)
 
@@ -380,10 +381,10 @@ class AvailabilityService(BaseService):
                                 available_qty = solo.get("availableQuantity", 0)
                                 if available_qty > 0:
                                     # Check if session has already started or will start too soon
-                                    # System operates in BRT timezone (UTC-3)
+                                    # Use São Paulo timezone (BRT = UTC-3) since Beyond The Club operates in Brazil
                                     try:
                                         session_datetime = datetime.strptime(f"{date} {interval}", "%Y-%m-%d %H:%M")
-                                        now_brt = datetime.now()  # Server runs in BRT
+                                        now_brt = get_sao_paulo_now().replace(tzinfo=None)  # Remove tz for comparison
                                         min_start_time = now_brt + timedelta(minutes=SESSION_START_BUFFER_MINUTES)
                                         if session_datetime < min_start_time:
                                             logger.debug(

@@ -13,7 +13,7 @@ from .base import BaseService, ServiceContext
 from .member_service import MemberService
 from .availability_service import AvailabilityService
 from .booking_service import BookingService
-from ..config import SESSION_FIXED_HOURS, get_valid_hours_for_level
+from ..config import SESSION_FIXED_HOURS, get_valid_hours_for_level, get_sao_paulo_now, get_sao_paulo_today
 
 logger = logging.getLogger(__name__)
 
@@ -396,16 +396,17 @@ class MonitorService(BaseService):
             remaining = int((end_time - time.time()) / 60)
 
             # Check if we're past 20min after session start (only for today's sessions with specific hour)
+            # Use São Paulo timezone (BRT = UTC-3) since Beyond The Club operates in Brazil
             if target_hour:
-                now = datetime.now()
-                today_str = now.strftime("%Y-%m-%d")
+                now_brt = get_sao_paulo_now()
+                today_str = get_sao_paulo_today()
                 if target_date == today_str:
                     # Parse target hour and add 20 minutes
                     session_hour, session_min = map(int, target_hour.split(":"))
-                    session_start = now.replace(hour=session_hour, minute=session_min, second=0, microsecond=0)
+                    session_start = now_brt.replace(hour=session_hour, minute=session_min, second=0, microsecond=0)
                     session_cutoff = session_start + timedelta(minutes=20)
 
-                    if now > session_cutoff:
+                    if now_brt > session_cutoff:
                         status_update(f"Sessão {target_hour} já começou há mais de 20 minutos. Encerrando busca.", "warning")
                         self._running = False
                         return {
