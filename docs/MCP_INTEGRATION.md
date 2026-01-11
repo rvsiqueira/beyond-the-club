@@ -13,6 +13,7 @@ The MCP Server provides a secure interface for voice agents to interact with the
 - **SSE (Server-Sent Events)** for real-time communication
 - **Session-based authentication** with API key validation
 - **Phone-based user identification** (caller ID)
+- **Knowledge Graph** for intelligent recommendations
 
 ---
 
@@ -166,126 +167,106 @@ Content-Type: application/json
 
 ## Available MCP Tools
 
-The server exposes the following tools via MCP:
+The server exposes the following tools via MCP, organized by category:
 
-| Tool | Description |
-|------|-------------|
-| `get_members` | List all members linked to the user |
-| `get_member_preferences` | Get booking preferences for a member |
-| `set_member_preferences` | Update booking preferences |
-| `get_availability` | Check session availability |
-| `book_session` | Book an available session |
-| `cancel_booking` | Cancel an existing booking |
-| `get_bookings` | List active bookings |
+### Authentication Tools
+
+| Tool | Description | Parameters |
+|------|-------------|------------|
+| `check_auth_status` | Check if phone has valid Beyond API auth | `phone`: string |
+| `request_beyond_sms` | Request SMS verification code | `phone`: string |
+| `verify_beyond_sms` | Verify SMS code and complete auth | `phone`: string, `code`: string, `session_info?`: string |
+| `get_authenticated_phone` | List all phones with valid auth | - |
+
+### Member Tools
+
+| Tool | Description | Parameters |
+|------|-------------|------------|
+| `get_members` | List all members with usage status | `sport?`: string (default: "surf") |
+| `get_member_preferences` | Get booking preferences for a member | `member_name`: string, `sport?`: string |
+| `set_member_preferences` | Update booking preferences | `member_name`: string, `sessions`: array, `target_hours?`: array, `target_dates?`: array, `sport?`: string |
+| `delete_member_preferences` | Remove all preferences for a member | `member_name`: string, `sport?`: string |
+
+### Availability Tools
+
+| Tool | Description | Parameters |
+|------|-------------|------------|
+| `check_availability` | Check available slots (uses cache) | `sport?`: string, `date?`: string, `level?`: string, `wave_side?`: string |
+| `scan_availability` | Force fresh availability scan | `sport?`: string |
+
+### Booking Tools
+
+| Tool | Description | Parameters |
+|------|-------------|------------|
+| `book_session` | Book a session for a member | `member_name`: string, `date`: string, `time`: string, `level?`: string, `wave_side?`: string, `sport?`: string |
+| `cancel_booking` | Cancel booking by voucher | `voucher_code`: string |
+| `swap_booking` | Transfer booking to different member | `voucher_code`: string, `new_member_name`: string, `sport?`: string |
+| `list_bookings` | List active bookings | `member_name?`: string, `sport?`: string |
+
+### Monitor Tools
+
+| Tool | Description | Parameters |
+|------|-------------|------------|
+| `get_session_options` | Get available levels and hours | - |
+| `check_session_availability` | Check availability (single check) | `member_name`: string, `level`: string, `target_date`: string, `wave_side?`: string, `target_hour?`: string, `sport?`: string |
+| `search_session` | Monitor and book specific session | `member_name`: string, `level`: string, `target_date`: string, `target_hour?`: string, `wave_side?`: string, `auto_book?`: bool, `duration_minutes?`: int, `sport?`: string |
+| `book_specific_slot` | Book a slot directly (no monitoring) | `member_name`: string, `level`: string, `wave_side`: string, `target_date`: string, `target_hour`: string, `sport?`: string |
+| `start_auto_monitor` | Start auto-monitoring with preferences | `member_names?`: array, `target_dates?`: array, `duration_minutes?`: int, `sport?`: string |
+| `check_monitor_status` | Check current monitor status | - |
 
 ---
 
-## Knowledge Graph Ontology
+## Tool Details
 
-The MCP server uses a semantic knowledge graph to provide intelligent recommendations and track user preferences. The agent can leverage this ontology for smarter interactions.
+### Sessions Configuration (set_member_preferences)
 
-### Graph Node Types
+The `sessions` parameter is an array of session preferences:
 
-```
-┌─────────────────────────────────────────────────────────────────┐
-│                     KNOWLEDGE GRAPH ONTOLOGY                     │
-├─────────────────────────────────────────────────────────────────┤
-│                                                                  │
-│  ┌──────┐         ┌────────┐         ┌────────────┐             │
-│  │ User │─────────│ Member │─────────│ Preference │             │
-│  └──────┘         └────────┘         └────────────┘             │
-│     │               │   │                  │                     │
-│     │               │   │     ┌────────────┼────────────┐        │
-│     │               │   │     │            │            │        │
-│     │               │   │     ▼            ▼            ▼        │
-│     │               │   │  ┌───────┐  ┌──────────┐  ┌───────┐   │
-│     │               │   │  │ Level │  │ WaveSide │  │ Court │   │
-│     │               │   │  └───────┘  └──────────┘  └───────┘   │
-│     │               │   │     (Surf)     (Surf)      (Tennis)   │
-│     │               │   │                                       │
-│     │               │   └─────────┐                             │
-│     │               │             │                             │
-│     │               ▼             ▼                             │
-│     │          ┌─────────┐   ┌────────┐                         │
-│     │          │ Booking │───│  Slot  │───────┐                 │
-│     │          └─────────┘   └────────┘       │                 │
-│     │                             │           ▼                 │
-│     │                             │      ┌────────┐             │
-│     │                             └──────│  Date  │             │
-│     │                                    └────────┘             │
-│     │                                                           │
-│     └───────────────────┐                                       │
-│                         ▼                                       │
-│                    ┌──────────┐                                 │
-│                    │ TimeSlot │  (preferred hours: 08:00, etc) │
-│                    └──────────┘                                 │
-│                                                                  │
-└─────────────────────────────────────────────────────────────────┘
-```
-
-| Node Type | Description | Properties |
-|-----------|-------------|------------|
-| `User` | App user (by phone) | `phone`, `name` |
-| `Member` | Beyond club member | `member_id`, `name`, `social_name`, `is_titular` |
-| `Sport` | Sport type | `name` (surf, tennis) |
-| `Preference` | Booking preference | `sport`, `priority`, `attributes` |
-| `Level` | Surf skill level | `name` (Iniciante1, Intermediario2, Avançado1, etc.) |
-| `WaveSide` | Surf wave side | `name` (Lado_esquerdo, Lado_direito) |
-| `Court` | Tennis court | `name` (Quadra_Saibro) |
-| `TimeSlot` | Preferred hour | `hour` (08:00, 09:00, etc.) |
-| `Booking` | Active booking | `voucher`, `access_code`, `status`, `created_at` |
-| `Slot` | Available session slot | `date`, `interval`, `available`, `level`, `wave_side` |
-| `Date` | Calendar date | `value` (YYYY-MM-DD) |
-
-### Graph Relationships (Edges)
-
-| Edge Type | From → To | Description |
-|-----------|-----------|-------------|
-| `HAS_MEMBER` | User → Member | User owns member(s) |
-| `HAS_PREFERENCE` | Member → Preference | Member's booking preference |
-| `FOR_SPORT` | Preference → Sport | Preference is for sport |
-| `PREFERS_LEVEL` | Preference → Level | Preferred surf level |
-| `PREFERS_WAVE_SIDE` | Preference → WaveSide | Preferred wave side |
-| `PREFERS_COURT` | Preference → Court | Preferred tennis court |
-| `PREFERS_HOUR` | Member → TimeSlot | Preferred booking hours |
-| `BOOKED` | Member → Booking | Member made booking |
-| `FOR_SLOT` | Booking → Slot | Booking is for slot |
-| `ON_DATE` | Slot → Date | Slot is on date |
-
-### Surf Domain Values
-
-**Levels (skill progression):**
-```
-Iniciante1 → Iniciante2 → Intermediario1 → Intermediario2 → Avançado1 → Avançado2
-```
-
-**Wave Sides:**
-- `Lado_esquerdo` (Left side)
-- `Lado_direito` (Right side)
-
-### How the Agent Discovers the Ontology
-
-When the agent connects via MCP, it can discover the domain knowledge through:
-
-1. **List Resources** - Get structured data:
 ```json
 {
-  "jsonrpc": "2.0",
-  "id": 1,
-  "method": "resources/list"
+  "sessions": [
+    {"level": "Avançado2", "wave_side": "Lado_direito"},
+    {"level": "Avançado1", "wave_side": "Lado_esquerdo"}
+  ],
+  "target_hours": ["08:00", "09:00"],
+  "target_dates": ["2025-01-15", "2025-01-16"]
 }
 ```
 
-Available resources:
-| Resource | Description |
-|----------|-------------|
-| `members` | All members with preferences |
-| `bookings` | Active bookings with slot details |
-| `availability` | Available slots for booking |
-| `preferences` | All member preferences by sport |
-| `auth` | Authentication status |
+### Session Levels and Fixed Hours
 
-2. **Read Resource** - Get specific data:
+Each level has specific valid hours:
+
+| Level | Valid Hours |
+|-------|-------------|
+| Iniciante1 | 10:00, 14:00, 16:00 |
+| Iniciante2 | 08:00, 11:00, 15:00, 17:00 |
+| Intermediario1 | 09:00, 12:00, 14:00, 16:00 |
+| Intermediario2 | 08:00, 10:00, 13:00, 15:00, 17:00 |
+| Avançado1 | 08:00, 09:00, 11:00, 14:00, 16:00 |
+| Avançado2 | 08:00, 09:00, 10:00, 12:00, 15:00, 17:00 |
+
+### Wave Sides
+
+- `Lado_esquerdo` (Left side)
+- `Lado_direito` (Right side)
+
+---
+
+## MCP Resources
+
+Resources provide structured data context for agents:
+
+| Resource URI | Description |
+|--------------|-------------|
+| `btc://auth` | Authentication status for all phones |
+| `btc://members` | All members with preferences |
+| `btc://bookings` | Active bookings with details |
+| `btc://availability` | Cached availability slots |
+| `btc://preferences` | All member preferences by sport |
+
+### Reading Resources
+
 ```json
 {
   "jsonrpc": "2.0",
@@ -295,30 +276,123 @@ Available resources:
 }
 ```
 
-3. **Use Graph-Aware Tools**:
+---
 
-The `get_member_preferences` tool returns graph-enhanced data including **similar members**:
+## Knowledge Graph Ontology
 
-```json
-{
-  "member": "Rafael Silva",
-  "preferences": [
-    {
-      "sport": "surf",
-      "priority": 1,
-      "level": "Avançado2",
-      "wave_side": "Lado_direito"
-    }
-  ],
-  "target_hours": ["08:00", "09:00"],
-  "similar_members": [
-    { "name": "João Costa", "similarity": 0.85 },
-    { "name": "Maria Santos", "similarity": 0.72 }
-  ]
-}
+The MCP server uses a semantic knowledge graph to provide intelligent recommendations and track user preferences. The agent can leverage this ontology for smarter interactions.
+
+### Graph Architecture
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                        KNOWLEDGE GRAPH ONTOLOGY                              │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                              │
+│  ┌──────┐  HAS_MEMBER   ┌────────┐  HAS_PREFERENCE  ┌────────────┐          │
+│  │ User │──────────────▶│ Member │─────────────────▶│ Preference │          │
+│  └──────┘               └────────┘                  └────────────┘          │
+│     │                      │  │                          │                   │
+│     │                      │  │                          │                   │
+│     │                      │  │     ┌────────────────────┼──────────────┐   │
+│     │                      │  │     │         │          │              │   │
+│     │                      │  │     ▼         ▼          ▼              ▼   │
+│     │                      │  │  ┌───────┐ ┌────────┐ ┌──────────┐ ┌───────┐│
+│     │                      │  │  │ Sport │ │ Level  │ │ WaveSide │ │ Court ││
+│     │                      │  │  └───────┘ └────────┘ └──────────┘ └───────┘│
+│     │                      │  │                (Surf)     (Surf)   (Tennis) │
+│     │                      │  │                                              │
+│     │                      │  └──────────┐                                   │
+│     │                      │             │                                   │
+│     │              BOOKED  ▼     FOR_SLOT▼                                   │
+│     │                 ┌─────────┐   ┌────────┐   ON_DATE   ┌────────┐       │
+│     │                 │ Booking │───│  Slot  │────────────▶│  Date  │       │
+│     │                 └─────────┘   └────────┘             └────────┘       │
+│     │                                    │                                   │
+│     │                                    │ HAS_LEVEL / HAS_WAVE_SIDE        │
+│     │                                    ▼                                   │
+│     │                    ┌───────────────┴───────────────┐                  │
+│     │                    │                               │                  │
+│     │                    ▼                               ▼                  │
+│     │               ┌────────┐                    ┌──────────┐              │
+│     │               │ Level  │                    │ WaveSide │              │
+│     │               └────────┘                    └──────────┘              │
+│     │                                                                        │
+│     │  PREFERS_HOUR                                                          │
+│     └───────────────────────────────────────────┐                           │
+│                                                 ▼                           │
+│                                           ┌──────────┐                      │
+│                                           │ TimeSlot │                      │
+│                                           └──────────┘                      │
+│                                                                              │
+└─────────────────────────────────────────────────────────────────────────────┘
 ```
 
-### Semantic Queries the Graph Enables
+### Node Types
+
+| Node Type | Description | Key Properties |
+|-----------|-------------|----------------|
+| `User` | App user (by phone) | `phone`, `name` |
+| `Member` | Beyond club member | `member_id`, `name`, `social_name`, `is_titular` |
+| `Sport` | Sport type | `name` (surf, tennis) |
+| `Preference` | Booking preference | `sport`, `priority`, `attributes` |
+| `Level` | Surf skill level | `name` (Iniciante1, Intermediario2, Avançado1, etc.) |
+| `WaveSide` | Surf wave side | `name` (Lado_esquerdo, Lado_direito) |
+| `Court` | Tennis court | `name` (Quadra_Saibro) |
+| `TimeSlot` | Preferred hour | `hour` (08:00, 09:00, etc.) |
+| `Booking` | Active/past booking | `voucher`, `access_code`, `status`, `created_at`, `cancelled_at` |
+| `Slot` | Available session slot | `date`, `interval`, `available`, `max_quantity`, `level`, `wave_side` |
+| `Date` | Calendar date | `value` (YYYY-MM-DD), `day_of_week` |
+
+### Edge Types (Relationships)
+
+| Edge Type | From → To | Description |
+|-----------|-----------|-------------|
+| `HAS_MEMBER` | User → Member | User owns member(s) |
+| `HAS_PREFERENCE` | Member → Preference | Member's booking preference (with `priority`) |
+| `FOR_SPORT` | Preference → Sport | Preference is for sport |
+| `PREFERS_LEVEL` | Preference → Level | Preferred surf level |
+| `PREFERS_WAVE_SIDE` | Preference → WaveSide | Preferred wave side |
+| `PREFERS_COURT` | Preference → Court | Preferred tennis court |
+| `PREFERS_HOUR` | Member → TimeSlot | Preferred booking hours |
+| `BOOKED` | Member → Booking | Member made booking (with `booked_at`) |
+| `FOR_SLOT` | Booking → Slot | Booking is for slot |
+| `ON_DATE` | Slot → Date | Slot is on date |
+| `HAS_LEVEL` | Slot → Level | Slot has level |
+| `HAS_WAVE_SIDE` | Slot → WaveSide | Slot has wave side |
+
+### Graph Queries Available
+
+The graph enables intelligent queries:
+
+| Query Method | Description | Returns |
+|--------------|-------------|---------|
+| `find_similar_members(member_id, sport)` | Find members with similar preferences | List of similar members with similarity score |
+| `find_optimal_slot(member_id, sport, date)` | Best slot based on preferences + hours | Optimal slot recommendation |
+| `get_member_booking_history(member_id, limit)` | Past bookings by member | Historical booking data |
+| `get_popular_combos(sport, limit)` | Most booked level/wave combinations | Ranked combos |
+| `get_member_preferences(member_id, sport)` | Member's stored preferences | Preference data |
+| `get_user_members(phone)` | Get members linked to a phone | Member list |
+| `get_member_summary(member_id)` | Full graph summary for a member | Complete profile |
+
+### How the Agent Uses Graph Intelligence
+
+```
+User: "Quero agendar uma aula de surf"
+
+Agent workflow:
+  1. Get member preferences from graph
+     → Member prefers Avançado2/Lado_direito
+  2. Check similar members' booking patterns
+     → Similar users book at 08:00 and 09:00
+  3. Find optimal slot matching preferences + preferred hours
+     → Found: 2025-01-15 08:00 Avançado2/Lado_direito
+  4. Suggest with context:
+     "Vi que você prefere Avançado2 lado direito.
+      Tem vaga amanhã às 8h - mesmo horário que você geralmente agenda."
+```
+
+### Semantic Queries Examples
 
 | Query | Description | Use Case |
 |-------|-------------|----------|
@@ -328,18 +402,43 @@ The `get_member_preferences` tool returns graph-enhanced data including **simila
 | Popular combos | Most booked level/wave combinations | "Intermediario2/Lado_direito is popular" |
 | Preference patterns | Cross-member preference analysis | "Most Avançado users prefer morning slots" |
 
-### Example: Agent Using Graph Intelligence
+---
+
+## Domain Model
+
+### Surf Session Levels (Progression)
 
 ```
-User: "Quero agendar uma aula de surf"
-
-Agent thinks:
-  1. Get member preferences from graph
-  2. Check similar members' booking patterns
-  3. Find optimal slot matching preferences + preferred hours
-  4. Suggest with context: "Vi que você prefere Avançado2 lado direito.
-     Tem vaga amanhã às 8h - mesmo horário que você geralmente agenda."
+Iniciante1 → Iniciante2 → Intermediario1 → Intermediario2 → Avançado1 → Avançado2
 ```
+
+### Wave Sides
+
+| Internal Name | Display Name |
+|---------------|--------------|
+| `Lado_esquerdo` | Left Side |
+| `Lado_direito` | Right Side |
+
+### Member Properties
+
+| Property | Description |
+|----------|-------------|
+| `member_id` | Unique Beyond API ID |
+| `name` | Full registered name |
+| `social_name` | Display name |
+| `is_titular` | Primary account holder |
+| `usage` | Sessions used this period |
+| `limit` | Maximum sessions allowed |
+
+### Booking Properties
+
+| Property | Description |
+|----------|-------------|
+| `voucher_code` | Unique booking identifier |
+| `access_code` | Entry code for the session |
+| `status` | `AccessReady`, `Cancelled`, `Used` |
+| `date` | Session date (YYYY-MM-DD) |
+| `interval` | Session time (HH:MM) |
 
 ---
 
@@ -497,18 +596,26 @@ async def handle_voice_call(caller_phone: str):
 
     print(f"Session created for {user['name']}")
 
-    # 2. List available tools
-    tools = await list_tools(token)
-    print(f"Available tools: {tools}")
+    # 2. Check if Beyond auth is valid
+    auth_status = await call_tool(token, "check_auth_status", {"phone": caller_phone})
+    print(f"Auth status: {auth_status}")
 
-    # 3. Get member's bookings
-    if user["member_ids"]:
-        result = await call_tool(
+    # 3. If authenticated, get members
+    if user["has_beyond_token"]:
+        members = await call_tool(token, "get_members", {"sport": "surf"})
+        print(f"Members: {members}")
+
+        # 4. Check availability for a specific session
+        availability = await call_tool(
             token,
-            "get_bookings",
-            {"member_id": user["member_ids"][0]}
+            "check_session_availability",
+            {
+                "member_name": "Rafael",
+                "level": "Avançado2",
+                "target_date": "2025-01-15"
+            }
         )
-        print(f"Bookings: {result}")
+        print(f"Availability: {availability}")
 ```
 
 ---
@@ -549,13 +656,55 @@ async function handleVoiceCall(callerPhone) {
   const session = await createSession(callerPhone);
   console.log(`Session for: ${session.user.name}`);
 
-  const bookings = await callTool(
+  // Check availability and book
+  const result = await callTool(
     session.session_token,
-    'get_bookings',
-    { member_id: session.user.member_ids[0] }
+    'search_session',
+    {
+      member_name: 'Rafael',
+      level: 'Avançado2',
+      target_date: '2025-01-15',
+      target_hour: '08:00',
+      wave_side: 'Lado_direito',
+      auto_book: true
+    }
   );
-  console.log('Bookings:', bookings);
+  console.log('Booking result:', result);
 }
+```
+
+---
+
+## Typical Voice Agent Conversation Flow
+
+```
+Agent: "Olá! Bem-vindo ao Beyond The Club. Como posso ajudar?"
+
+User: "Quero agendar uma aula de surf"
+
+Agent: [calls get_members]
+       "Vi que você tem 2 membros cadastrados: Rafael e Maria.
+        Para quem você quer agendar?"
+
+User: "Para o Rafael"
+
+Agent: [calls get_member_preferences]
+       "Rafael prefere Avançado2 lado direito, geralmente às 8h.
+        Qual data você prefere?"
+
+User: "Amanhã"
+
+Agent: [calls check_session_availability]
+       "Encontrei essas opções para amanhã:
+        - 08:00 lado direito (2 vagas)
+        - 09:00 lado esquerdo (4 vagas)
+        Qual você prefere?"
+
+User: "8h lado direito"
+
+Agent: [calls book_specific_slot]
+       "Reservado! Rafael está confirmado para amanhã às 8h,
+        Avançado2 lado direito. Código de acesso: ABC123"
 ```
 
 ---
@@ -566,6 +715,19 @@ async function handleVoiceCall(callerPhone) {
 2. **Session Tokens**: Expire after 10 minutes. Create new session if expired.
 3. **HTTPS**: Always use HTTPS in production.
 4. **Caller ID**: Validate caller ID before creating session.
+5. **Beyond Tokens**: Stored securely, auto-refresh when needed.
+
+---
+
+## Environment Variables
+
+| Variable | Description | Default |
+|----------|-------------|---------|
+| `MCP_API_KEY` | Voice Agent authentication key | Required |
+| `MCP_SESSION_EXPIRY_SECONDS` | Session timeout | 600 |
+| `MCP_HOST` | Server host | 0.0.0.0 |
+| `MCP_PORT` | Server port | 8001 |
+| `BEYOND_API_URL` | Beyond API endpoint | Required |
 
 ---
 
