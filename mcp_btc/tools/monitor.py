@@ -96,7 +96,7 @@ async def start_auto_monitor(
             member_ids=member_ids,
             target_dates=target_dates,
             duration_minutes=duration_minutes,
-            check_interval_seconds=30,
+            check_interval_seconds=12,
             on_status_update=on_status
         )
 
@@ -295,7 +295,7 @@ async def search_session(
             wave_side=wave_side,
             auto_book=auto_book,
             duration_minutes=duration_minutes,
-            check_interval_seconds=30,
+            check_interval_seconds=12,
             on_status_update=on_status
         )
 
