@@ -370,8 +370,131 @@ async def list_tools() -> list[Tool]:
     # Monitor tools
     tools.extend([
         Tool(
+            name="get_session_options",
+            description="Get available session options including levels, wave sides, and valid hours for each level. Use this FIRST to understand what options are available before searching.",
+            inputSchema={
+                "type": "object",
+                "properties": {}
+            }
+        ),
+        Tool(
+            name="search_session",
+            description="Start a background monitor to search for a specific session. Searches continuously until found or timeout. Use this when user wants to monitor for a specific level/date/hour combination.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "member_name": {
+                        "type": "string",
+                        "description": "Name of the member to book for"
+                    },
+                    "level": {
+                        "type": "string",
+                        "description": "Session level: Iniciante1, Iniciante2, Intermediario1, Intermediario2, Avançado1, Avançado2"
+                    },
+                    "target_date": {
+                        "type": "string",
+                        "description": "Target date (YYYY-MM-DD format)"
+                    },
+                    "target_hour": {
+                        "type": "string",
+                        "description": "Target hour (HH:MM format, optional - searches all valid hours if not specified)"
+                    },
+                    "wave_side": {
+                        "type": "string",
+                        "description": "Wave side: Lado_esquerdo or Lado_direito (optional - searches both if not specified)"
+                    },
+                    "auto_book": {
+                        "type": "boolean",
+                        "description": "If true, book immediately when slot found (default: true)",
+                        "default": True
+                    },
+                    "duration_minutes": {
+                        "type": "integer",
+                        "description": "How long to run the search: 60, 120, 180, 240, 300, or 360 minutes (default: 120)",
+                        "default": 120
+                    },
+                    "sport": {
+                        "type": "string",
+                        "description": "Sport type: 'surf' or 'tennis'",
+                        "default": "surf"
+                    }
+                },
+                "required": ["member_name", "level", "target_date"]
+            }
+        ),
+        Tool(
+            name="check_session_availability",
+            description="Check current availability for a session (single check, no monitoring). Returns all available slots so user can choose. Use this to show options before booking.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "member_name": {
+                        "type": "string",
+                        "description": "Name of the member to check for"
+                    },
+                    "level": {
+                        "type": "string",
+                        "description": "Session level: Iniciante1, Iniciante2, Intermediario1, Intermediario2, Avançado1, Avançado2"
+                    },
+                    "target_date": {
+                        "type": "string",
+                        "description": "Target date (YYYY-MM-DD format)"
+                    },
+                    "target_hour": {
+                        "type": "string",
+                        "description": "Target hour (HH:MM format, optional - checks all valid hours if not specified)"
+                    },
+                    "wave_side": {
+                        "type": "string",
+                        "description": "Wave side: Lado_esquerdo or Lado_direito (optional - checks both if not specified)"
+                    },
+                    "sport": {
+                        "type": "string",
+                        "description": "Sport type: 'surf' or 'tennis'",
+                        "default": "surf"
+                    }
+                },
+                "required": ["member_name", "level", "target_date"]
+            }
+        ),
+        Tool(
+            name="book_specific_slot",
+            description="Book a specific slot directly (no monitoring). Use after check_session_availability when user has chosen a slot.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "member_name": {
+                        "type": "string",
+                        "description": "Name of the member to book for"
+                    },
+                    "level": {
+                        "type": "string",
+                        "description": "Session level"
+                    },
+                    "wave_side": {
+                        "type": "string",
+                        "description": "Wave side: Lado_esquerdo or Lado_direito"
+                    },
+                    "target_date": {
+                        "type": "string",
+                        "description": "Date (YYYY-MM-DD)"
+                    },
+                    "target_hour": {
+                        "type": "string",
+                        "description": "Hour (HH:MM)"
+                    },
+                    "sport": {
+                        "type": "string",
+                        "description": "Sport type: 'surf' or 'tennis'",
+                        "default": "surf"
+                    }
+                },
+                "required": ["member_name", "level", "wave_side", "target_date", "target_hour"]
+            }
+        ),
+        Tool(
             name="start_auto_monitor",
-            description="Start automatic monitoring and booking for members. Will continuously check for available slots matching preferences.",
+            description="Start automatic monitoring and booking for members based on their preferences. Will continuously check for available slots matching preferences.",
             inputSchema={
                 "type": "object",
                 "properties": {
@@ -387,7 +510,7 @@ async def list_tools() -> list[Tool]:
                     },
                     "duration_minutes": {
                         "type": "integer",
-                        "description": "How long to run the monitor (default: 120 minutes)",
+                        "description": "How long to run the monitor: 60, 120, 180, 240, 300, or 360 minutes (default: 120)",
                         "default": 120
                     },
                     "sport": {
@@ -400,10 +523,29 @@ async def list_tools() -> list[Tool]:
         ),
         Tool(
             name="check_monitor_status",
-            description="Check the status of a running auto-monitor.",
+            description="Check the status of running monitors. Shows all active monitors and their progress.",
             inputSchema={
                 "type": "object",
-                "properties": {}
+                "properties": {
+                    "monitor_id": {
+                        "type": "string",
+                        "description": "Specific monitor ID to check (optional - shows all if not specified)"
+                    }
+                }
+            }
+        ),
+        Tool(
+            name="stop_monitor",
+            description="Stop a running monitor by ID.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "monitor_id": {
+                        "type": "string",
+                        "description": "Monitor ID to stop"
+                    }
+                },
+                "required": ["monitor_id"]
             }
         ),
     ])
@@ -445,10 +587,20 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> list[TextContent]:
             result = await members.set_member_preferences(**arguments)
         elif name == "delete_member_preferences":
             result = await members.delete_member_preferences(**arguments)
+        elif name == "get_session_options":
+            result = await monitor.get_session_options()
+        elif name == "search_session":
+            result = await monitor.search_session(**arguments)
+        elif name == "check_session_availability":
+            result = await monitor.check_session_availability(**arguments)
+        elif name == "book_specific_slot":
+            result = await monitor.book_specific_slot(**arguments)
         elif name == "start_auto_monitor":
             result = await monitor.start_auto_monitor(**arguments)
         elif name == "check_monitor_status":
-            result = await monitor.check_monitor_status()
+            result = await monitor.check_monitor_status(**arguments)
+        elif name == "stop_monitor":
+            result = await monitor.stop_monitor(**arguments)
         else:
             result = f"Unknown tool: {name}"
 
