@@ -277,7 +277,7 @@ function MonitorCard({
                   variant="danger"
                   size="sm"
                   onClick={onStop}
-                  disabled={isStoppingMonitor || monitor.status === 'stopping'}
+                  disabled={isStoppingMonitor}
                   isLoading={isStoppingMonitor}
                   className="flex-1"
                 >
