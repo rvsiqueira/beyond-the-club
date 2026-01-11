@@ -4,8 +4,9 @@ import { useState, useEffect, useCallback } from 'react';
 import { Radio, Play, Square, CheckCircle, XCircle, Clock, Users, Search, Calendar, X, PartyPopper } from 'lucide-react';
 import { MainLayout } from '@/components/layout';
 import { Card, CardContent, CardHeader, CardTitle, Button, Badge } from '@/components/ui';
-import { useMembers, useRefreshMembers, useStartMonitor, useMonitorWebSocket } from '@/hooks';
+import { useMembers, useRefreshMembers, useStartMonitor, useMonitorWebSocket, useActiveMonitors } from '@/hooks';
 import { SessionSearchForm } from '@/components/SessionSearchForm';
+import { MonitorList } from '@/components/MonitorList';
 import type { Member } from '@/types';
 
 type TabType = 'specific' | 'preferences';
@@ -27,9 +28,17 @@ interface BookingResult {
 
 export default function MonitorPage() {
   const [activeTab, setActiveTab] = useState<TabType>('specific');
+  const { monitors } = useActiveMonitors();
 
   return (
     <MainLayout title="Monitor">
+      {/* Active Monitors List */}
+      {monitors.length > 0 && (
+        <div className="mb-6">
+          <MonitorList />
+        </div>
+      )}
+
       {/* Tab Navigation */}
       <div className="mb-6 border-b border-gray-200">
         <nav className="flex gap-0" aria-label="Tabs">

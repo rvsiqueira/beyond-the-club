@@ -22,7 +22,7 @@ const WAVE_SIDES = [
   { value: 'Lado_direito', label: 'Direita', icon: '→' },
 ];
 
-const DURATIONS = [60, 120, 180];
+const DURATIONS = [60, 120, 180, 240, 300, 360];
 
 export function SessionSearchForm() {
   const { data: membersData, isLoading: membersLoading } = useMembers();
