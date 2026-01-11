@@ -152,8 +152,8 @@ function MonitorCard({
       {/* Expanded Content */}
       {isExpanded && (
         <CardContent className="border-t border-gray-100 pt-4 space-y-4">
-          {/* Result if completed */}
-          {monitor.result && (
+          {/* Result if completed - only show if result has actual content */}
+          {monitor.result && (monitor.result.success !== undefined || monitor.result.error) && (
             <div className={`p-3 rounded-lg ${
               monitor.result.success
                 ? 'bg-green-50 border border-green-200'

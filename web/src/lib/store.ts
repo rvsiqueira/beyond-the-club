@@ -128,15 +128,22 @@ export const useMonitorStore = create<MonitorState>()(
         })),
       syncFromServer: (serverMonitors) =>
         set((state) => {
-          const newMonitors = { ...state.monitors };
+          const newMonitors: Record<string, MonitorInfo> = {};
+          // Only keep monitors that exist on the server
           for (const m of serverMonitors) {
             newMonitors[m.monitor_id] = m;
           }
-          // Remove monitors that are not in server anymore (except pending ones we just created)
-          const serverIds = new Set(serverMonitors.map((m) => m.monitor_id));
-          for (const id of Object.keys(newMonitors)) {
-            if (!serverIds.has(id) && newMonitors[id].status !== 'pending') {
-              delete newMonitors[id];
+          // Keep local pending monitors only if they were created very recently (< 30s)
+          // This allows new monitors to appear before the server knows about them
+          const now = Date.now() / 1000;
+          for (const [id, monitor] of Object.entries(state.monitors)) {
+            if (
+              monitor.status === 'pending' &&
+              !newMonitors[id] &&
+              monitor.started_at &&
+              now - monitor.started_at < 30
+            ) {
+              newMonitors[id] = monitor;
             }
           }
           return { monitors: newMonitors };

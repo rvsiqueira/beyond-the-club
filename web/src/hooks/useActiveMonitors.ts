@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useRef, useCallback } from 'react';
+import { useEffect, useRef, useCallback, useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from '@/lib/api';
 import { useMonitorStore, useToastStore, type MonitorInfo } from '@/lib/store';
@@ -14,6 +14,7 @@ export function useActiveMonitors() {
   const { monitors, syncFromServer, updateMonitor, removeMonitor } = useMonitorStore();
   const { addToast } = useToastStore();
   const previousMonitorsRef = useRef<Record<string, MonitorInfo>>({});
+  const [hasCheckedInitial, setHasCheckedInitial] = useState(false);
 
   // Check if we have any active monitors to poll
   const hasActiveMonitors = Object.values(monitors).some(
@@ -21,12 +22,21 @@ export function useActiveMonitors() {
   );
 
   // Query for active monitors
+  // Always enabled on first load to check for existing monitors, then only poll if there are active monitors
   const { data, isLoading, error, refetch } = useQuery({
     queryKey: ['activeMonitors'],
     queryFn: () => api.getActiveMonitors(),
     refetchInterval: hasActiveMonitors ? POLL_INTERVAL : false,
-    enabled: hasActiveMonitors,
+    // Always run on mount to sync with server, then continue polling if there are active monitors
+    enabled: !hasCheckedInitial || hasActiveMonitors,
   });
+
+  // Mark initial check as done after first successful fetch
+  useEffect(() => {
+    if (data && !hasCheckedInitial) {
+      setHasCheckedInitial(true);
+    }
+  }, [data, hasCheckedInitial]);
 
   // Sync server data with store and check for completed monitors
   useEffect(() => {

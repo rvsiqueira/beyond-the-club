@@ -342,16 +342,78 @@ async def update_monitor(
                 detail="Duration must be one of: 60, 120, 180, 240, 300, 360"
             )
         monitor["duration_minutes"] = request.duration_minutes
+        needs_restart = True  # Duration change requires restart to take effect
         updated_fields.append("duration_minutes")
 
     if needs_restart:
-        # Stop current monitor and it will need to be restarted
+        # Stop current monitor
         services.monitor.stop()
-        monitor["status"] = "pending"
         monitor["messages"].append({
-            "message": f"Monitor atualizado. Campos: {', '.join(updated_fields)}. Reconecte para reiniciar.",
+            "message": f"Monitor atualizado. Campos: {', '.join(updated_fields)}. Reiniciando...",
             "level": "info"
         })
+
+        # Restart monitor in background if it's a session_search type
+        if monitor.get("type") == "session_search":
+            import threading
+            import time
+
+            # Reset elapsed time for new search
+            monitor["started_at"] = time.time()
+            monitor["status"] = "running"
+
+            def status_callback(message: str, level: str):
+                monitor["messages"].append({"message": message, "level": level})
+
+            def run_session_search():
+                try:
+                    result = services.monitor.run_session_search(
+                        member_id=monitor["member_id"],
+                        level=monitor["level"],
+                        wave_side=monitor.get("wave_side"),
+                        target_date=monitor["target_date"],
+                        target_hour=monitor.get("target_hour"),
+                        auto_book=monitor.get("auto_book", True),
+                        duration_minutes=monitor["duration_minutes"],
+                        check_interval_seconds=monitor.get("check_interval_seconds", 12),
+                        on_status_update=status_callback
+                    )
+                    monitor["result"] = result
+                    if result.get("success"):
+                        monitor["status"] = "completed"
+                        # Sync booking to graph
+                        slot = result.get("slot", {})
+                        if result.get("voucher"):
+                            services.graph.sync_booking(
+                                voucher=result["voucher"],
+                                access_code=result.get("access_code", ""),
+                                member_id=monitor["member_id"],
+                                date=slot.get("date", ""),
+                                interval=slot.get("interval", ""),
+                                level=slot.get("level"),
+                                wave_side=slot.get("wave_side")
+                            )
+                    else:
+                        monitor["status"] = "completed"
+                except Exception as e:
+                    monitor["result"] = {"success": False, "error": str(e)}
+                    monitor["status"] = "error"
+
+            # Update elapsed_seconds periodically
+            def update_elapsed():
+                while monitor.get("status") == "running":
+                    if monitor.get("started_at"):
+                        monitor["elapsed_seconds"] = int(time.time() - monitor["started_at"])
+                    time.sleep(1)
+
+            thread = threading.Thread(target=run_session_search, daemon=True)
+            thread.start()
+            monitor["_thread"] = thread
+
+            elapsed_thread = threading.Thread(target=update_elapsed, daemon=True)
+            elapsed_thread.start()
+        else:
+            monitor["status"] = "pending"
     else:
         monitor["messages"].append({
             "message": f"Monitor atualizado. Campos: {', '.join(updated_fields)}",
