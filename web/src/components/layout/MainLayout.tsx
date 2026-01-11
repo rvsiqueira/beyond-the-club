@@ -4,8 +4,10 @@ import { useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { Sidebar } from './Sidebar';
 import { Header } from './Header';
-import { useUIStore } from '@/lib/store';
+import { useUIStore, useToastStore } from '@/lib/store';
 import { useAuth } from '@/hooks/useAuth';
+import { useActiveMonitors } from '@/hooks/useActiveMonitors';
+import { ToastContainer } from '@/components/ui/Toast';
 import { cn } from '@/lib/utils';
 
 interface MainLayoutProps {
@@ -17,6 +19,10 @@ export function MainLayout({ children, title }: MainLayoutProps) {
   const router = useRouter();
   const { isAuthenticated, isLoading } = useAuth();
   const sidebarOpen = useUIStore((state) => state.sidebarOpen);
+  const { toasts, removeToast } = useToastStore();
+
+  // Initialize active monitors polling (runs globally for toast notifications)
+  useActiveMonitors();
 
   useEffect(() => {
     if (!isLoading && !isAuthenticated) {
@@ -53,6 +59,8 @@ export function MainLayout({ children, title }: MainLayoutProps) {
         <Header title={title} />
         <main className="p-4 lg:p-6">{children}</main>
       </div>
+      {/* Toast notifications */}
+      <ToastContainer toasts={toasts} onDismiss={removeToast} />
     </div>
   );
 }
