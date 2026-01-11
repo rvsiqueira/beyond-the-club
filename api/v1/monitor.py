@@ -31,6 +31,7 @@ class StartMonitorRequest(BaseModel):
     target_dates: Optional[List[str]] = Field(None, description="Target dates (YYYY-MM-DD)")
     duration_minutes: int = Field(120, description="Duration in minutes")
     check_interval_seconds: int = Field(12, description="Check interval in seconds")
+    notify_phone: Optional[str] = Field(None, description="Phone number for SMS notification (Brazilian format)")
 
 
 class SessionSearchRequest(BaseModel):
@@ -43,6 +44,7 @@ class SessionSearchRequest(BaseModel):
     auto_book: bool = Field(True, description="Auto-book when slot found")
     duration_minutes: int = Field(120, description="Duration in minutes")
     check_interval_seconds: int = Field(12, description="Check interval in seconds")
+    notify_phone: Optional[str] = Field(None, description="Phone number for SMS notification (Brazilian format)")
 
 
 class MonitorStatusResponse(BaseModel):
@@ -102,6 +104,7 @@ async def start_monitor(
         "target_dates": request.target_dates,
         "duration_minutes": request.duration_minutes,
         "check_interval_seconds": request.check_interval_seconds,
+        "notify_phone": request.notify_phone,
         "sport": sport,
         "user_phone": current_user.phone,
         "results": {},
@@ -376,7 +379,8 @@ async def update_monitor(
                         auto_book=monitor.get("auto_book", True),
                         duration_minutes=monitor["duration_minutes"],
                         check_interval_seconds=monitor.get("check_interval_seconds", 12),
-                        on_status_update=status_callback
+                        on_status_update=status_callback,
+                        notify_phone=monitor.get("notify_phone")
                     )
                     monitor["result"] = result
                     if result.get("success"):
@@ -521,6 +525,7 @@ async def start_session_search(
         "auto_book": request.auto_book,
         "duration_minutes": request.duration_minutes,
         "check_interval_seconds": request.check_interval_seconds,
+        "notify_phone": request.notify_phone,
         "sport": sport,
         "user_phone": current_user.phone,
         "result": {},
@@ -640,7 +645,8 @@ async def monitor_websocket(websocket: WebSocket, monitor_id: str):
                     target_dates=monitor["target_dates"],
                     duration_minutes=monitor["duration_minutes"],
                     check_interval_seconds=monitor["check_interval_seconds"],
-                    on_status_update=status_callback
+                    on_status_update=status_callback,
+                    notify_phone=monitor.get("notify_phone")
                 )
                 result_holder["results"] = results
             except Exception as e:
@@ -845,7 +851,8 @@ async def session_search_websocket(websocket: WebSocket, monitor_id: str):
                     auto_book=monitor["auto_book"],
                     duration_minutes=monitor["duration_minutes"],
                     check_interval_seconds=monitor["check_interval_seconds"],
-                    on_status_update=status_callback
+                    on_status_update=status_callback,
+                    notify_phone=monitor.get("notify_phone")
                 )
                 result_holder["result"] = result
             except Exception as e:

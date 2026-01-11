@@ -3,3 +3,4 @@ export { Input } from './Input';
 export { Card, CardHeader, CardTitle, CardContent, CardFooter } from './Card';
 export { Badge } from './Badge';
 export { Select } from './Select';
+export { PhoneInput } from './PhoneInput';

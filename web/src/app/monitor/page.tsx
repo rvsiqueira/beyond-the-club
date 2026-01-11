@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { Radio, Play, Square, CheckCircle, XCircle, Clock, Users, Search, Calendar, X, PartyPopper } from 'lucide-react';
 import { MainLayout } from '@/components/layout';
-import { Card, CardContent, CardHeader, CardTitle, Button, Badge } from '@/components/ui';
+import { Card, CardContent, CardHeader, CardTitle, Button, Badge, PhoneInput } from '@/components/ui';
 import { useMembers, useRefreshMembers, useStartMonitor, useMonitorWebSocket, useActiveMonitors } from '@/hooks';
 import { SessionSearchForm } from '@/components/SessionSearchForm';
 import { MonitorList } from '@/components/MonitorList';
@@ -80,6 +80,7 @@ function PreferencesMonitor() {
 
   const [selectedMembers, setSelectedMembers] = useState<number[]>([]);
   const [duration, setDuration] = useState(120);
+  const [notifyPhone, setNotifyPhone] = useState<string>('');
   const [monitorId, setMonitorId] = useState<string | null>(null);
   const [showSuccessModal, setShowSuccessModal] = useState(false);
   const [bookingResults, setBookingResults] = useState<BookingResult[]>([]);
@@ -109,6 +110,7 @@ function PreferencesMonitor() {
     const result = await startMutation.mutateAsync({
       member_ids: selectedMembers,
       duration_minutes: duration,
+      notify_phone: notifyPhone ? `+55${notifyPhone}` : undefined,
     });
 
     setMonitorId(result.monitor_id);
@@ -216,6 +218,21 @@ function PreferencesMonitor() {
                   </button>
                 ))}
               </div>
+            </div>
+
+            {/* SMS Notification Phone (Optional) */}
+            <div className="mb-6">
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                Notificar por SMS (opcional)
+              </label>
+              <PhoneInput
+                value={notifyPhone}
+                onChange={setNotifyPhone}
+                placeholder="(11) 98149-1849"
+              />
+              <p className="mt-1 text-xs text-gray-500">
+                Receba um SMS quando uma sessao for agendada
+              </p>
             </div>
 
             {/* Member Selection */}

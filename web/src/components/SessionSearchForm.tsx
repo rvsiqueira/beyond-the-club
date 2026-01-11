@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useMemo, useRef } from 'react';
 import { GraduationCap, Waves, Calendar, Clock, Play, Square, CheckCircle, Radio, XCircle, ArrowLeft, ArrowRight } from 'lucide-react';
-import { Card, CardContent, CardHeader, CardTitle, Button, Badge } from '@/components/ui';
+import { Card, CardContent, CardHeader, CardTitle, Button, Badge, PhoneInput } from '@/components/ui';
 import { useMembers, useSessionOptions, useStartSessionSearch, useSessionSearchWebSocket } from '@/hooks';
 import { getTodayDate, getDateDaysFromNow, formatLevel, formatWaveSide, formatDateBR } from '@/lib/utils';
 import type { Member } from '@/types';
@@ -36,6 +36,7 @@ export function SessionSearchForm() {
   const [selectedWaveSide, setSelectedWaveSide] = useState<string>('');
   const [selectedHour, setSelectedHour] = useState<string>('');
   const [duration, setDuration] = useState(120);
+  const [notifyPhone, setNotifyPhone] = useState<string>('');
 
   // Monitor state
   const [monitorId, setMonitorId] = useState<string | null>(null);
@@ -114,6 +115,7 @@ export function SessionSearchForm() {
       wave_side: selectedWaveSide || undefined,
       auto_book: true,
       duration_minutes: duration,
+      notify_phone: notifyPhone ? `+55${notifyPhone}` : undefined,
     };
 
     try {
@@ -366,6 +368,21 @@ export function SessionSearchForm() {
                 </button>
               ))}
             </div>
+          </div>
+
+          {/* SMS Notification Phone (Optional) */}
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-2">
+              Notificar por SMS (opcional)
+            </label>
+            <PhoneInput
+              value={notifyPhone}
+              onChange={setNotifyPhone}
+              placeholder="(11) 98149-1849"
+            />
+            <p className="mt-1 text-xs text-gray-500">
+              Receba um SMS quando a sessao for agendada
+            </p>
           </div>
 
           {/* Actions */}

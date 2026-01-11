@@ -127,6 +127,7 @@ export interface StartMonitorRequest {
   target_dates?: string[];
   duration_minutes?: number;
   check_interval_seconds?: number;
+  notify_phone?: string;
 }
 
 // Session Search
@@ -139,6 +140,7 @@ export interface SessionSearchRequest {
   auto_book?: boolean;
   duration_minutes?: number;
   check_interval_seconds?: number;
+  notify_phone?: string;
 }
 
 export interface SessionOptionsResponse {

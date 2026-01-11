@@ -13,6 +13,7 @@ from ..config import Config, load_config, SportConfig
 from ..firebase_auth import FirebaseAuth, FirebaseTokens
 from ..sms_auth import SMSAuth
 from ..beyond_api import BeyondAPI
+from .sms_service import SMSService
 
 logger = logging.getLogger(__name__)
 
@@ -30,9 +31,17 @@ class ServiceContext:
     sms_auth: SMSAuth
     api: Optional[BeyondAPI] = None
     current_sport: str = "surf"
+    _sms: Optional[SMSService] = field(default=None, repr=False)
 
     # Callbacks
     on_tokens_updated: Optional[Callable[[FirebaseTokens], None]] = None
+
+    @property
+    def sms(self) -> SMSService:
+        """Lazy-loaded SMS service."""
+        if self._sms is None:
+            self._sms = SMSService()
+        return self._sms
 
     def __post_init__(self):
         """Initialize Firebase auth with token callback if provided."""

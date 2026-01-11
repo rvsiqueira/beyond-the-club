@@ -57,7 +57,8 @@ class MonitorService(BaseService):
         target_dates: Optional[List[str]] = None,
         duration_minutes: int = 120,
         check_interval_seconds: int = 12,
-        on_status_update: Optional[Callable[[str, str], None]] = None
+        on_status_update: Optional[Callable[[str, str], None]] = None,
+        notify_phone: Optional[str] = None
     ) -> Dict[int, dict]:
         """
         Run automatic monitoring and booking for selected members.
@@ -163,6 +164,23 @@ class MonitorService(BaseService):
                                 access = result.get("accessCode", result.get("invitation", {}).get("accessCode", "N/A"))
 
                                 status_update(f"  AGENDADO! Voucher: {voucher} | Access: {access}")
+
+                                # Send SMS notification if phone provided
+                                if notify_phone and self.context.sms.is_configured():
+                                    sms_result = self.context.sms.send_booking_notification(
+                                        to_phone=notify_phone,
+                                        member_name=member.social_name,
+                                        date=slot.date,
+                                        time=slot.interval,
+                                        level=slot.level,
+                                        wave_side=slot.wave_side,
+                                        voucher=voucher,
+                                        access_code=access
+                                    )
+                                    if sms_result.get("success"):
+                                        status_update(f"  SMS enviado para {notify_phone}", "success")
+                                    else:
+                                        status_update(f"  SMS falhou: {sms_result.get('error')}", "warning")
 
                                 results[member_id] = {
                                     "success": True,
@@ -307,7 +325,8 @@ class MonitorService(BaseService):
         auto_book: bool = True,
         duration_minutes: int = 120,
         check_interval_seconds: int = 12,
-        on_status_update: Optional[Callable[[str, str], None]] = None
+        on_status_update: Optional[Callable[[str, str], None]] = None,
+        notify_phone: Optional[str] = None
     ) -> Dict:
         """
         Search and optionally book a specific session with fixed parameters.
@@ -471,6 +490,23 @@ class MonitorService(BaseService):
                         access = result.get("accessCode", result.get("invitation", {}).get("accessCode", "N/A"))
 
                         status_update(f"AGENDADO! Voucher: {voucher} | Access: {access}")
+
+                        # Send SMS notification if phone provided
+                        if notify_phone and self.context.sms.is_configured():
+                            sms_result = self.context.sms.send_booking_notification(
+                                to_phone=notify_phone,
+                                member_name=member.social_name,
+                                date=slot_found.date,
+                                time=slot_found.interval,
+                                level=slot_found.level,
+                                wave_side=slot_found.wave_side,
+                                voucher=voucher,
+                                access_code=access
+                            )
+                            if sms_result.get("success"):
+                                status_update(f"SMS enviado para {notify_phone}", "success")
+                            else:
+                                status_update(f"SMS falhou: {sms_result.get('error')}", "warning")
 
                         self._running = False
                         return {
