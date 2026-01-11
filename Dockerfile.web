@@ -22,6 +22,8 @@ COPY web/ .
 # Set environment for build
 ENV NEXT_TELEMETRY_DISABLED=1
 ENV NODE_ENV=production
+# API URL for rewrites - use Docker service name
+ENV API_URL=http://api:8000
 
 # Build the application
 RUN npm run build
