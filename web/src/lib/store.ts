@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import type { User } from '@/types';
+import type { ToastData } from '@/components/ui/Toast';
 
 interface AuthState {
   user: User | null;
@@ -44,4 +45,127 @@ export const useUIStore = create<UIState>((set) => ({
   setSidebarOpen: (open) => set({ sidebarOpen: open }),
   toggleMobileMenu: () => set((state) => ({ mobileMenuOpen: !state.mobileMenuOpen })),
   setMobileMenuOpen: (open) => set({ mobileMenuOpen: open }),
+}));
+
+// Monitor types
+export interface MonitorMessage {
+  type: string;
+  message: string;
+  level: string;
+}
+
+export interface MonitorResult {
+  success: boolean;
+  voucher?: string;
+  access_code?: string;
+  slot?: {
+    date: string;
+    interval: string;
+    level: string;
+    wave_side: string;
+  };
+  error?: string;
+  member_name?: string;
+}
+
+export interface MonitorInfo {
+  monitor_id: string;
+  type: string;
+  status: 'pending' | 'running' | 'completed' | 'error' | 'stopped' | 'stopping';
+  member_id: number;
+  member_name: string;
+  level: string;
+  wave_side?: string;
+  target_date: string;
+  target_hour?: string;
+  duration_minutes: number;
+  elapsed_seconds: number;
+  started_at?: number;
+  messages: MonitorMessage[];
+  result?: MonitorResult;
+}
+
+interface MonitorState {
+  monitors: Record<string, MonitorInfo>;
+  expandedMonitorId: string | null;
+  setMonitor: (id: string, info: MonitorInfo) => void;
+  updateMonitor: (id: string, partial: Partial<MonitorInfo>) => void;
+  removeMonitor: (id: string) => void;
+  setExpanded: (id: string | null) => void;
+  clearCompleted: () => void;
+  syncFromServer: (serverMonitors: MonitorInfo[]) => void;
+}
+
+export const useMonitorStore = create<MonitorState>()(
+  persist(
+    (set) => ({
+      monitors: {},
+      expandedMonitorId: null,
+      setMonitor: (id, info) =>
+        set((state) => ({
+          monitors: { ...state.monitors, [id]: info },
+        })),
+      updateMonitor: (id, partial) =>
+        set((state) => ({
+          monitors: {
+            ...state.monitors,
+            [id]: state.monitors[id] ? { ...state.monitors[id], ...partial } : state.monitors[id],
+          },
+        })),
+      removeMonitor: (id) =>
+        set((state) => {
+          const { [id]: _, ...rest } = state.monitors;
+          return { monitors: rest };
+        }),
+      setExpanded: (id) => set({ expandedMonitorId: id }),
+      clearCompleted: () =>
+        set((state) => ({
+          monitors: Object.fromEntries(
+            Object.entries(state.monitors).filter(
+              ([_, m]) => m.status === 'pending' || m.status === 'running'
+            )
+          ),
+        })),
+      syncFromServer: (serverMonitors) =>
+        set((state) => {
+          const newMonitors = { ...state.monitors };
+          for (const m of serverMonitors) {
+            newMonitors[m.monitor_id] = m;
+          }
+          // Remove monitors that are not in server anymore (except pending ones we just created)
+          const serverIds = new Set(serverMonitors.map((m) => m.monitor_id));
+          for (const id of Object.keys(newMonitors)) {
+            if (!serverIds.has(id) && newMonitors[id].status !== 'pending') {
+              delete newMonitors[id];
+            }
+          }
+          return { monitors: newMonitors };
+        }),
+    }),
+    {
+      name: 'monitor-storage',
+      partialize: (state) => ({ monitors: state.monitors }),
+    }
+  )
+);
+
+// Toast store
+interface ToastState {
+  toasts: ToastData[];
+  addToast: (toast: Omit<ToastData, 'id'>) => void;
+  removeToast: (id: string) => void;
+  clearToasts: () => void;
+}
+
+export const useToastStore = create<ToastState>((set) => ({
+  toasts: [],
+  addToast: (toast) =>
+    set((state) => ({
+      toasts: [...state.toasts, { ...toast, id: `toast-${Date.now()}-${Math.random().toString(36).slice(2)}` }],
+    })),
+  removeToast: (id) =>
+    set((state) => ({
+      toasts: state.toasts.filter((t) => t.id !== id),
+    })),
+  clearToasts: () => set({ toasts: [] }),
 }));

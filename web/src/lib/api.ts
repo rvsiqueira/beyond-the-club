@@ -292,6 +292,48 @@ class ApiClient {
     return this.fetch('/monitor');
   }
 
+  async getActiveMonitors(): Promise<{
+    monitors: Array<{
+      monitor_id: string;
+      type: string;
+      status: string;
+      member_id: number;
+      member_name: string;
+      level: string;
+      wave_side?: string;
+      target_date: string;
+      target_hour?: string;
+      duration_minutes: number;
+      elapsed_seconds: number;
+      started_at?: number;
+      messages: Array<{ type: string; message: string; level: string }>;
+      result?: unknown;
+    }>;
+  }> {
+    return this.fetch('/monitor/user/active');
+  }
+
+  async updateMonitor(
+    monitorId: string,
+    data: {
+      level?: string;
+      wave_side?: string;
+      target_hour?: string;
+      duration_minutes?: number;
+    }
+  ): Promise<{
+    success: boolean;
+    monitor_id: string;
+    message: string;
+    restarted: boolean;
+    updated_fields: string[];
+  }> {
+    return this.fetch(`/monitor/${monitorId}/update`, {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    });
+  }
+
   // Sports
   async getSports(): Promise<{ sports: Record<string, SportConfig> }> {
     return this.fetch('/sports');

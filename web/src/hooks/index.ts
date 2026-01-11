@@ -5,3 +5,4 @@ export { useBookings, useBooking, useCreateBooking, useCancelBooking, useSwapBoo
 export { useMonitor, useMonitors, useStartMonitor, useStopMonitor, useMonitorWebSocket } from './useMonitor';
 export { useBeyondTokenStatus } from './useBeyondToken';
 export { useSessionOptions, useStartSessionSearch, useSessionSearchWebSocket } from './useSessionSearch';
+export { useActiveMonitors } from './useActiveMonitors';
