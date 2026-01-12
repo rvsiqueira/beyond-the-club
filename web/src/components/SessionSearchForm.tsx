@@ -352,13 +352,13 @@ export function SessionSearchForm() {
             <label className="block text-sm font-medium text-gray-700 mb-2">
               Duracao da busca
             </label>
-            <div className="flex gap-2">
+            <div className="flex gap-2 overflow-x-auto pb-2 -mx-1 px-1 scrollbar-hide">
               {DURATIONS.map((d) => (
                 <button
                   key={d}
                   onClick={() => setDuration(d)}
                   disabled={status === 'running'}
-                  className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+                  className={`flex-shrink-0 px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
                     duration === d
                       ? 'bg-primary-600 text-white'
                       : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
